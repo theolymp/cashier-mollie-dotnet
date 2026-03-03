@@ -135,6 +135,10 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
         await _mollieClient.GetCustomerAsync(owner.MollieCustomerId, ct);
     }
 
+    /// <inheritdoc />
+    public IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount)
+        => new ChargeBuilder<TKey>(_db, _mollieClient, _eventDispatcher, _options, owner, amount);
+
     private async Task<Subscription<TKey>> GetSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
         => await GetSubscriptionAsync(owner, name, ct)
            ?? throw new CashierException($"No subscription '{name}' found for owner '{owner.Id}'.");

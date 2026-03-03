@@ -85,4 +85,12 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
 
     /// <summary>Updates the Mollie customer with current owner data.</summary>
     Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
+
+    /// <summary>
+    /// Creates a new one-off charge builder for the given owner and amount.
+    /// Use the returned builder's fluent API to configure description, metadata, etc. before calling CreateAsync.
+    /// </summary>
+    /// <param name="owner">The billable entity (user) being charged.</param>
+    /// <param name="amount">The charge amount (must be positive).</param>
+    IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount);
 }
