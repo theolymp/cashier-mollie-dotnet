@@ -86,6 +86,15 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// <summary>Updates the Mollie customer with current owner data.</summary>
     Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
 
+    /// <summary>Updates the subscription quantity (seat-based billing).</summary>
+    Task<Subscription<TKey>> UpdateQuantityAsync(IBillable<TKey> owner, string name, int quantity, CancellationToken ct = default);
+
+    /// <summary>Increments the subscription quantity by count.</summary>
+    Task<Subscription<TKey>> IncrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, CancellationToken ct = default);
+
+    /// <summary>Decrements the subscription quantity by count (minimum 1).</summary>
+    Task<Subscription<TKey>> DecrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, CancellationToken ct = default);
+
     /// <summary>
     /// Creates a new one-off charge builder for the given owner and amount.
     /// Use the returned builder's fluent API to configure description, metadata, etc. before calling CreateAsync.

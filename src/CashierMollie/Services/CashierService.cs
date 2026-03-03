@@ -136,6 +136,33 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     }
 
     /// <inheritdoc />
+    public async Task<Subscription<TKey>> UpdateQuantityAsync(IBillable<TKey> owner, string name,
+        int quantity, CancellationToken ct = default)
+    {
+        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        return await _engine.UpdateQuantityAsync(sub, quantity, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<Subscription<TKey>> IncrementQuantityAsync(IBillable<TKey> owner, string name,
+        int count = 1, CancellationToken ct = default)
+    {
+        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        int current = (int)(sub.Quantity ?? 1);
+        return await _engine.UpdateQuantityAsync(sub, current + count, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<Subscription<TKey>> DecrementQuantityAsync(IBillable<TKey> owner, string name,
+        int count = 1, CancellationToken ct = default)
+    {
+        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        int current = (int)(sub.Quantity ?? 1);
+        int newQty = Math.Max(1, current - count);
+        return await _engine.UpdateQuantityAsync(sub, newQty, ct);
+    }
+
+    /// <inheritdoc />
     public IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount)
         => new ChargeBuilder<TKey>(_db, _mollieClient, _eventDispatcher, _options, owner, amount);
 

@@ -265,5 +265,65 @@ public class CashierServiceTests : IDisposable
             Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task UpdateQuantityAsync_UpdatesQuantity()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1", Name = "default", Plan = "pro",
+            Status = SubscriptionStatus.Active, Quantity = 1
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var result = await _sut.UpdateQuantityAsync(_owner, "default", 5);
+        Assert.Equal(5, result.Quantity);
+    }
+
+    [Fact]
+    public async Task IncrementQuantityAsync_IncrementsBy1()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1", Name = "default", Plan = "pro",
+            Status = SubscriptionStatus.Active, Quantity = 2
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var result = await _sut.IncrementQuantityAsync(_owner, "default");
+        Assert.Equal(3, result.Quantity);
+    }
+
+    [Fact]
+    public async Task DecrementQuantityAsync_DecrementsBy1()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1", Name = "default", Plan = "pro",
+            Status = SubscriptionStatus.Active, Quantity = 5
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var result = await _sut.DecrementQuantityAsync(_owner, "default", 2);
+        Assert.Equal(3, result.Quantity);
+    }
+
+    [Fact]
+    public async Task DecrementQuantityAsync_FloorAt1()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1", Name = "default", Plan = "pro",
+            Status = SubscriptionStatus.Active, Quantity = 2
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var result = await _sut.DecrementQuantityAsync(_owner, "default", 10);
+        Assert.Equal(1, result.Quantity);
+    }
+
     public void Dispose() => _db.Dispose();
 }
