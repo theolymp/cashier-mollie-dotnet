@@ -5,6 +5,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.Extensions.Options;
+using Mollie.Api.Models.Customer.Response;
 using NSubstitute;
 
 namespace CashierMollie.Tests.Services;
@@ -237,6 +238,31 @@ public class CashierServiceTests : IDisposable
         var subs = await _sut.GetSubscriptionsAsync(_owner);
 
         Assert.Equal(2, subs.Count);
+    }
+
+    [Fact]
+    public async Task GetOrCreateMollieCustomerAsync_CreatesNewCustomer()
+    {
+        var owner = new TestBillable("u1"); // no MollieCustomerId
+        var mockResponse = Substitute.For<CustomerResponse>();
+        mockResponse.Id = "cst_new";
+        _mollieClient.CreateCustomerAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(mockResponse);
+
+        var customerId = await _sut.GetOrCreateMollieCustomerAsync(owner);
+
+        Assert.Equal("cst_new", customerId);
+        Assert.Equal("cst_new", owner.MollieCustomerId);
+    }
+
+    [Fact]
+    public async Task GetOrCreateMollieCustomerAsync_ReturnsExisting()
+    {
+        var owner = new TestBillable("u1", "cst_existing");
+        var customerId = await _sut.GetOrCreateMollieCustomerAsync(owner);
+        Assert.Equal("cst_existing", customerId);
+        await _mollieClient.DidNotReceive().CreateCustomerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     public void Dispose() => _db.Dispose();

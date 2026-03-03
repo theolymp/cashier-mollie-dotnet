@@ -117,6 +117,24 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     public Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default)
         => _db.Subscriptions.Where(s => s.OwnerId.Equals(owner.Id)).ToListAsync(ct);
 
+    /// <inheritdoc />
+    public async Task<string> GetOrCreateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default)
+    {
+        if (!string.IsNullOrEmpty(owner.MollieCustomerId))
+            return owner.MollieCustomerId;
+
+        var customer = await _mollieClient.CreateCustomerAsync(owner.Name ?? "", owner.Email, ct);
+        owner.MollieCustomerId = customer.Id;
+        return customer.Id;
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(owner.MollieCustomerId);
+        await _mollieClient.GetCustomerAsync(owner.MollieCustomerId, ct);
+    }
+
     private async Task<Subscription<TKey>> GetSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
         => await GetSubscriptionAsync(owner, name, ct)
            ?? throw new CashierException($"No subscription '{name}' found for owner '{owner.Id}'.");

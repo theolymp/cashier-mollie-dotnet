@@ -79,4 +79,10 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// Retrieves all subscriptions for the given owner.
     /// </summary>
     Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default);
+
+    /// <summary>Gets or creates a Mollie customer for the owner.</summary>
+    Task<string> GetOrCreateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
+
+    /// <summary>Updates the Mollie customer with current owner data.</summary>
+    Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
 }
