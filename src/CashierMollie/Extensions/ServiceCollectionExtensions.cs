@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
         services.AddScoped<ICashierService<TKey>, CashierService<TKey>>();
         services.AddScoped<IWebhookService, WebhookService<TKey>>();
+        services.AddScoped<IRefundService<TKey>, RefundService<TKey>>();
 
         // Default no-op event dispatcher (consumer can replace)
         services.TryAddScoped<ICashierEventDispatcher, NullCashierEventDispatcher>();

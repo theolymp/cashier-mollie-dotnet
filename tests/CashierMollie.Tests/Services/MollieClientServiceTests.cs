@@ -16,12 +16,13 @@ public class MollieClientServiceTests
     private readonly IPaymentClient _paymentClient = Substitute.For<IPaymentClient>();
     private readonly ISubscriptionClient _subscriptionClient = Substitute.For<ISubscriptionClient>();
     private readonly IMandateClient _mandateClient = Substitute.For<IMandateClient>();
+    private readonly IRefundClient _refundClient = Substitute.For<IRefundClient>();
     private readonly IMollieClientService _sut;
 
     public MollieClientServiceTests()
     {
         _sut = new MollieClientService(
-            _customerClient, _paymentClient, _subscriptionClient, _mandateClient);
+            _customerClient, _paymentClient, _subscriptionClient, _mandateClient, _refundClient);
     }
 
     [Fact]

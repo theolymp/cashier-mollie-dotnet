@@ -2,6 +2,7 @@ using Mollie.Api.Models.Customer.Response;
 using Mollie.Api.Models.List.Response;
 using Mollie.Api.Models.Mandate.Response;
 using Mollie.Api.Models.Payment.Response;
+using Mollie.Api.Models.Refund.Response;
 using Mollie.Api.Models.Subscription.Response;
 
 namespace CashierMollie.Interfaces;
@@ -51,4 +52,12 @@ public interface IMollieClientService
 
     /// <summary>Revokes a mandate for a customer.</summary>
     Task RevokeMandateAsync(string customerId, string mandateId, CancellationToken ct = default);
+
+    /// <summary>Creates a refund for a payment.</summary>
+    Task<RefundResponse> CreateRefundAsync(string paymentId, decimal amount, string currency,
+        string? description = null, CancellationToken ct = default);
+
+    /// <summary>Gets refund details.</summary>
+    Task<RefundResponse> GetRefundAsync(string paymentId, string refundId,
+        CancellationToken ct = default);
 }

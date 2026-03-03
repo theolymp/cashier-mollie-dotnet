@@ -8,6 +8,8 @@ using Mollie.Api.Models.Mandate.Response;
 using Mollie.Api.Models.Payment;
 using Mollie.Api.Models.Payment.Request;
 using Mollie.Api.Models.Payment.Response;
+using Mollie.Api.Models.Refund.Request;
+using Mollie.Api.Models.Refund.Response;
 using Mollie.Api.Models.Subscription.Request;
 using Mollie.Api.Models.Subscription.Response;
 
@@ -19,17 +21,20 @@ public class MollieClientService : IMollieClientService
     private readonly IPaymentClient _paymentClient;
     private readonly ISubscriptionClient _subscriptionClient;
     private readonly IMandateClient _mandateClient;
+    private readonly IRefundClient _refundClient;
 
     public MollieClientService(
         ICustomerClient customerClient,
         IPaymentClient paymentClient,
         ISubscriptionClient subscriptionClient,
-        IMandateClient mandateClient)
+        IMandateClient mandateClient,
+        IRefundClient refundClient)
     {
         _customerClient = customerClient;
         _paymentClient = paymentClient;
         _subscriptionClient = subscriptionClient;
         _mandateClient = mandateClient;
+        _refundClient = refundClient;
     }
 
     public async Task<CustomerResponse> CreateCustomerAsync(string name, string? email, CancellationToken ct)
@@ -111,4 +116,23 @@ public class MollieClientService : IMollieClientService
 
     public Task RevokeMandateAsync(string customerId, string mandateId, CancellationToken ct)
         => _mandateClient.RevokeMandate(customerId, mandateId, cancellationToken: ct);
+
+    /// <inheritdoc />
+    public Task<RefundResponse> CreateRefundAsync(string paymentId, decimal amount,
+        string currency, string? description, CancellationToken ct)
+    {
+        var request = new RefundRequest
+        {
+            Amount = new Amount(currency, amount),
+            Description = description,
+        };
+        return _refundClient.CreatePaymentRefundAsync(paymentId, request, cancellationToken: ct);
+    }
+
+    /// <inheritdoc />
+    public Task<RefundResponse> GetRefundAsync(string paymentId, string refundId,
+        CancellationToken ct)
+    {
+        return _refundClient.GetPaymentRefundAsync(paymentId, refundId, cancellationToken: ct);
+    }
 }
