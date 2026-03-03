@@ -16,6 +16,9 @@ public class OrderItem<TKey> where TKey : IEquatable<TKey>
     /// <summary>Foreign key to the subscription.</summary>
     public long SubscriptionId { get; set; }
 
+    /// <summary>Foreign key to the parent order (null for legacy items without an order).</summary>
+    public long? OrderId { get; set; }
+
     /// <summary>Foreign key to the billable owner.</summary>
     [Required]
     public TKey OwnerId { get; set; } = default!;
@@ -39,6 +42,9 @@ public class OrderItem<TKey> where TKey : IEquatable<TKey>
     /// <summary>Tax rate as a percentage (e.g. 19.0 for 19% VAT).</summary>
     public decimal TaxPercentage { get; set; }
 
+    /// <summary>Discount amount applied to this line item.</summary>
+    public decimal Discount { get; set; }
+
     /// <summary>Associated Mollie payment ID.</summary>
     [MaxLength(255)]
     public string? MolliePaymentId { get; set; }
@@ -58,6 +64,9 @@ public class OrderItem<TKey> where TKey : IEquatable<TKey>
 
     /// <summary>Navigation property to the parent subscription.</summary>
     public Subscription<TKey> Subscription { get; set; } = default!;
+
+    /// <summary>Navigation property to the parent order (optional).</summary>
+    public Order<TKey>? Order { get; set; }
 
     /// <summary>Total before tax (UnitPrice * Quantity).</summary>
     public decimal Total => UnitPrice * Quantity;

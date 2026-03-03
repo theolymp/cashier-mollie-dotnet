@@ -27,6 +27,10 @@ public class Subscription<TKey> where TKey : IEquatable<TKey>
     [MaxLength(255)]
     public string Plan { get; set; } = default!;
 
+    /// <summary>The next plan to swap to at the end of the current billing cycle (null if no swap pending).</summary>
+    [MaxLength(255)]
+    public string? NextPlan { get; set; }
+
     /// <summary>The Mollie subscription ID (e.g. "sub_xxx"), set after the subscription is created on Mollie.</summary>
     [MaxLength(255)]
     public string? MollieSubscriptionId { get; set; }

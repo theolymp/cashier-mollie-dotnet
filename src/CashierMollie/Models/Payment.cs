@@ -38,6 +38,12 @@ public class Payment<TKey> where TKey : IEquatable<TKey>
     /// <summary>Payment amount.</summary>
     public decimal Amount { get; set; }
 
+    /// <summary>Total amount refunded from this payment.</summary>
+    public decimal AmountRefunded { get; set; }
+
+    /// <summary>Total amount charged back from this payment.</summary>
+    public decimal AmountChargedBack { get; set; }
+
     /// <summary>The mandate ID acquired from this payment (set after successful first payment).</summary>
     [MaxLength(255)]
     public string? MollieMandateId { get; set; }
