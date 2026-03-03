@@ -8,6 +8,6 @@ namespace CashierMollie.Services;
 /// </summary>
 public class NullCashierEventDispatcher : ICashierEventDispatcher
 {
-    public Task DispatchAsync<T>(T @event, CancellationToken ct = default) where T : notnull
+    public Task DispatchAsync<T>(T domainEvent, CancellationToken ct = default) where T : notnull
         => Task.CompletedTask;
 }

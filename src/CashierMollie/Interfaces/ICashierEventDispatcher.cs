@@ -7,5 +7,11 @@ namespace CashierMollie.Interfaces;
 /// </summary>
 public interface ICashierEventDispatcher
 {
-    Task DispatchAsync<T>(T @event, CancellationToken ct = default) where T : notnull;
+    /// <summary>
+    /// Dispatches a domain event to registered handlers.
+    /// </summary>
+    /// <typeparam name="T">The event type.</typeparam>
+    /// <param name="domainEvent">The event instance to dispatch.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task DispatchAsync<T>(T domainEvent, CancellationToken ct = default) where T : notnull;
 }

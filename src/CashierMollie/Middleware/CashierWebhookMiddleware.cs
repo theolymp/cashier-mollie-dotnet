@@ -6,17 +6,23 @@ using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Middleware;
 
-public class CashierWebhookMiddleware
+/// <summary>
+/// ASP.NET Core middleware that handles incoming Mollie payment webhooks.
+/// Register with <c>app.UseCashierWebhook()</c>.
+/// </summary>
+public partial class CashierWebhookMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly string _webhookPath;
 
+    /// <summary>Creates a new instance of the webhook middleware.</summary>
     public CashierWebhookMiddleware(RequestDelegate next, IOptions<CashierMollieOptions> options)
     {
         _next = next;
         _webhookPath = options.Value.WebhookUrl;
     }
 
+    /// <summary>Processes the HTTP request, handling webhook POSTs at the configured path.</summary>
     public async Task InvokeAsync(HttpContext context)
     {
         if (context.Request.Method == "POST" &&
@@ -41,7 +47,8 @@ public class CashierWebhookMiddleware
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Error processing Mollie webhook for payment {PaymentId}", paymentId);
+                if (logger != null)
+                    LogWebhookError(logger, paymentId, ex);
                 context.Response.StatusCode = 200; // Always return 200 to Mollie to prevent retries
             }
 
@@ -50,4 +57,7 @@ public class CashierWebhookMiddleware
 
         await _next(context);
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error processing Mollie webhook for payment {PaymentId}")]
+    private static partial void LogWebhookError(ILogger logger, string paymentId, Exception ex);
 }
