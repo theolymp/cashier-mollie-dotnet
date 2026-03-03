@@ -16,6 +16,10 @@ public class CashierDbContext<TKey> : DbContext where TKey : IEquatable<TKey>
     public DbSet<Subscription<TKey>> Subscriptions => Set<Subscription<TKey>>();
     public DbSet<OrderItem<TKey>> OrderItems => Set<OrderItem<TKey>>();
     public DbSet<Payment<TKey>> Payments => Set<Payment<TKey>>();
+    public DbSet<Order<TKey>> Orders => Set<Order<TKey>>();
+    public DbSet<Credit<TKey>> Credits => Set<Credit<TKey>>();
+    public DbSet<Refund<TKey>> Refunds => Set<Refund<TKey>>();
+    public DbSet<RedeemedCoupon<TKey>> RedeemedCoupons => Set<RedeemedCoupon<TKey>>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +62,39 @@ public static class CashierModelBuilderExtensions
                 .WithMany()
                 .HasForeignKey(e => e.SubscriptionId)
                 .IsRequired(false);
+        });
+
+        modelBuilder.Entity<Order<TKey>>(entity =>
+        {
+            entity.ToTable("cashier_orders");
+            entity.HasIndex(e => e.OwnerId);
+            entity.HasIndex(e => e.MolliePaymentId);
+            entity.HasMany(e => e.Items)
+                .WithOne(e => e.Order)
+                .HasForeignKey(e => e.OrderId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Credit<TKey>>(entity =>
+        {
+            entity.ToTable("cashier_credits");
+            entity.HasIndex(e => new { e.OwnerId, e.Currency }).IsUnique();
+        });
+
+        modelBuilder.Entity<Refund<TKey>>(entity =>
+        {
+            entity.ToTable("cashier_refunds");
+            entity.HasIndex(e => e.OwnerId);
+            entity.HasIndex(e => e.MollieRefundId).IsUnique();
+            entity.HasOne(e => e.Payment)
+                .WithMany()
+                .HasForeignKey(e => e.PaymentId);
+        });
+
+        modelBuilder.Entity<RedeemedCoupon<TKey>>(entity =>
+        {
+            entity.ToTable("cashier_redeemed_coupons");
+            entity.HasIndex(e => e.OwnerId);
         });
 
         return modelBuilder;
