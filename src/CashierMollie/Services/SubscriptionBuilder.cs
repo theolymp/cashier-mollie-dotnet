@@ -84,12 +84,25 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
                 ? $"Authorization for {_plan}"
                 : $"First payment for {_plan}";
 
-            var payment = await _mollieClient.CreateFirstPaymentAsync(
+            var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
                 customerId, 0.01m, _options.Currency,
                 description,
                 _options.FirstPaymentRedirectUrl, _options.WebhookUrl, ct);
 
-            checkoutUrl = payment.Links?.Checkout?.Href;
+            // Create local payment record so the webhook can find and process it
+            var localPayment = new Payment<TKey>
+            {
+                OwnerId = _owner.Id,
+                SubscriptionId = subscription.Id,
+                MolliePaymentId = molliePayment.Id,
+                Status = molliePayment.Status ?? "open",
+                Amount = 0.01m,
+                Currency = _options.Currency,
+            };
+            _db.Payments.Add(localPayment);
+            await _db.SaveChangesAsync(ct);
+
+            checkoutUrl = molliePayment.Links?.Checkout?.Href;
             requiresAction = true;
         }
         else

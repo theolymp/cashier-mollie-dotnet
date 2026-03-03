@@ -4,6 +4,7 @@ using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.EntityFrameworkCore;
 using Mollie.Api.Models.Payment.Response;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -89,6 +90,13 @@ public class SubscriptionLifecycleTests : IDisposable
         Assert.True(result.RequiresAction);
         Assert.Equal("https://checkout.mollie.com/xxx", result.CheckoutUrl);
         Assert.Equal(SubscriptionStatus.Pending, result.Subscription.Status);
+
+        // Verify a local Payment record was created
+        var localPayment = await _db.Payments
+            .FirstOrDefaultAsync(p => p.MolliePaymentId == "tr_first");
+        Assert.NotNull(localPayment);
+        Assert.Equal(result.Subscription.Id, localPayment.SubscriptionId);
+        Assert.Equal("user-2", localPayment.OwnerId);
     }
 
     [Fact]
@@ -137,6 +145,99 @@ public class SubscriptionLifecycleTests : IDisposable
         // Get all subscriptions
         var subs = await _cashier.GetSubscriptionsAsync(owner);
         Assert.Equal(2, subs.Count);
+    }
+
+    [Fact]
+    public async Task FirstPaymentWebhook_ActivatesPendingSubscription()
+    {
+        var owner = new TestBillable("user-6", "cst_fp", null);
+
+        // Setup first payment mock
+        var mockPayment = Substitute.For<PaymentResponse>();
+        mockPayment.Id = "tr_fp_activate";
+        mockPayment.Status = "open";
+        var mockLinks = Substitute.For<PaymentResponseLinks>();
+        var mockCheckout = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+        mockCheckout.Href = "https://checkout.mollie.com/fp";
+        mockLinks.Checkout = mockCheckout;
+        mockPayment.Links = mockLinks;
+
+        _mollieClient.CreateFirstPaymentAsync(
+            "cst_fp", Arg.Any<decimal>(), "EUR",
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(mockPayment);
+
+        // 1. Create subscription (pending — no mandate)
+        var result = await _cashier.NewSubscription(owner, "default", "pro")
+            .CreateAsync();
+
+        Assert.Equal(SubscriptionStatus.Pending, result.Subscription.Status);
+        Assert.True(result.RequiresAction);
+
+        // 2. Simulate Mollie webhook: payment is now "paid" with mandate
+        var webhookPaymentResponse = Substitute.For<PaymentResponse>();
+        webhookPaymentResponse.Id = "tr_fp_activate";
+        webhookPaymentResponse.Status = "paid";
+        webhookPaymentResponse.MandateId = "mdt_new";
+
+        _mollieClient.GetPaymentAsync("tr_fp_activate", Arg.Any<CancellationToken>())
+            .Returns(webhookPaymentResponse);
+
+        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        await webhookService.HandlePaymentAsync("tr_fp_activate");
+
+        // 3. Verify subscription is now active
+        var sub = await _db.Subscriptions.FindAsync(result.Subscription.Id);
+        Assert.Equal(SubscriptionStatus.Active, sub!.Status);
+        Assert.NotNull(sub.CycleStartedAt);
+
+        // 4. Verify SubscriptionCreated event was dispatched
+        await _eventDispatcher.Received().DispatchAsync(
+            Arg.Any<SubscriptionCreated<string>>(), Arg.Any<CancellationToken>());
+
+        // 5. Verify payment record was updated
+        var payment = await _db.Payments.FirstAsync(p => p.MolliePaymentId == "tr_fp_activate");
+        Assert.Equal("paid", payment.Status);
+        Assert.Equal("mdt_new", payment.MollieMandateId);
+        Assert.NotNull(payment.PaidAt);
+    }
+
+    [Fact]
+    public async Task FirstPaymentWebhook_FailedPayment_DoesNotActivate()
+    {
+        var owner = new TestBillable("user-7", "cst_fail", null);
+
+        var mockPayment = Substitute.For<PaymentResponse>();
+        mockPayment.Id = "tr_fp_fail";
+        mockPayment.Status = "open";
+        var mockLinks = Substitute.For<PaymentResponseLinks>();
+        var mockCheckout = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+        mockCheckout.Href = "https://checkout.mollie.com/fail";
+        mockLinks.Checkout = mockCheckout;
+        mockPayment.Links = mockLinks;
+
+        _mollieClient.CreateFirstPaymentAsync(
+            "cst_fail", Arg.Any<decimal>(), "EUR",
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(mockPayment);
+
+        var result = await _cashier.NewSubscription(owner, "default", "pro")
+            .CreateAsync();
+
+        // Simulate failed payment webhook
+        var failedPayment = Substitute.For<PaymentResponse>();
+        failedPayment.Id = "tr_fp_fail";
+        failedPayment.Status = "failed";
+
+        _mollieClient.GetPaymentAsync("tr_fp_fail", Arg.Any<CancellationToken>())
+            .Returns(failedPayment);
+
+        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        await webhookService.HandlePaymentAsync("tr_fp_fail");
+
+        // Subscription should still be pending
+        var sub = await _db.Subscriptions.FindAsync(result.Subscription.Id);
+        Assert.Equal(SubscriptionStatus.Pending, sub!.Status);
     }
 
     public void Dispose() => _db.Dispose();

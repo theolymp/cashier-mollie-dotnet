@@ -55,7 +55,20 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         if (localPayment.SubscriptionId.HasValue)
             subscription = await _db.Subscriptions.FindAsync([localPayment.SubscriptionId.Value], ct);
 
-        // Dispatch events
+        // Activate pending subscription on successful first payment
+        if (molliePayment.Status == "paid" && subscription != null
+            && subscription.Status == SubscriptionStatus.Pending)
+        {
+            subscription.Status = SubscriptionStatus.Active;
+            subscription.CycleStartedAt = DateTimeOffset.UtcNow;
+            subscription.UpdatedAt = DateTimeOffset.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            await _eventDispatcher.DispatchAsync(
+                new SubscriptionCreated<TKey>(subscription, localPayment.OwnerId), ct);
+        }
+
+        // Dispatch payment events
         if (molliePayment.Status == "paid")
         {
             await _eventDispatcher.DispatchAsync(
