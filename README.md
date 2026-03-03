@@ -244,6 +244,7 @@ bool onTrial = await _cashier.OnTrialAsync(user, "default");
 
 // Is the subscription cancelled but still within the grace period?
 bool onGracePeriod = await _cashier.OnGracePeriodAsync(user, "default");
+bool isCancelled = await _cashier.IsCancelledAsync(user, "default");
 
 // Get the full subscription object for detailed inspection
 var subscription = await _cashier.GetSubscriptionAsync(user, "default");
@@ -611,6 +612,7 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
 
     // Retrieve subscriptions
     Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
@@ -657,12 +659,13 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `Locale` | `string` | `"de_DE"` | Locale for Mollie checkout pages (e.g. `"en_US"`, `"nl_NL"`, `"de_DE"`) |
 | `WebhookUrl` | `string` | `"/cashier/webhook"` | URL path where Mollie sends payment status updates |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
+| `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
 
 ## Roadmap
 
 CashierMollie v0.1.0 covers the core subscription lifecycle. The following features are planned for future releases:
 
-- [ ] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
+- [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
 - [ ] **Coupon / discount system** -- fixed and percentage-based discounts with configurable coupon handlers
 - [ ] **Proration** -- credit calculation for mid-cycle plan changes
 - [ ] **Quantity management** -- increment, decrement, and update subscription quantities
