@@ -40,6 +40,13 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
   - [Trial Periods](#trial-periods)
   - [Grace Periods](#grace-periods)
   - [Multiple Subscriptions](#multiple-subscriptions)
+  - [Quantity Management](#quantity-management)
+- [Billing Engines](#billing-engines)
+- [Coupons](#coupons)
+- [Credits](#credits)
+- [One-off Charges](#one-off-charges)
+- [Refunds](#refunds)
+- [Payment Method Update](#payment-method-update)
 - [First Payment & Mandates](#first-payment--mandates)
 - [Webhooks](#webhooks)
   - [Middleware (Recommended)](#webhook-middleware-recommended)
@@ -61,12 +68,22 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 ## Features
 
 - **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions with a fluent API
+- **Dual billing engine** -- choose between Mollie's native Subscription API (`MollieNative`) or a self-managed billing cycle (`Managed`) with background processing
 - **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
+- **Quantity management** -- update, increment, and decrement subscription quantities (seat-based billing)
+- **Coupon system** -- fixed and percentage-based discounts with pluggable `ICouponRepository` and `ICouponHandler`
+- **Credit / balance system** -- add, apply, and check account credit balances per currency
+- **One-off charges** -- fluent `IChargeBuilder` for single payments with or without mandate
+- **Refund system** -- partial and complete refunds via Mollie with local tracking
+- **Payment method update** -- initiate payment method changes via first payment flow
+- **Mandate management** -- check mandate validity and revoke mandates
+- **Chargeback detection** -- automatic tracking and events for chargebacks
+- **Invoice interface** -- pluggable `IInvoiceGenerator<TKey>` for custom invoice generation (sevdesk, PDF, etc.)
 - **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
-- **Event system** -- pluggable `ICashierEventDispatcher` to react to payment and subscription lifecycle events
-- **EF Core integration** -- `Subscription`, `OrderItem`, and `Payment` entities with a single `ModelBuilder` extension
+- **Event system** -- 23 domain events via pluggable `ICashierEventDispatcher`
+- **EF Core integration** -- 7 entities across 7 tables with a single `ModelBuilder` extension
 - **Generic owner key** -- supports `string`, `int`, `Guid`, or any `IEquatable<TKey>` type for your user model
 - **Dependency injection** -- first-class ASP.NET Core DI support with a single `AddCashierMollie<TKey>()` call
 
@@ -344,6 +361,115 @@ bool hasAddons = await _cashier.IsSubscribedAsync(user, "addons");
 await _cashier.CancelAsync(user, "addons");
 ```
 
+### Quantity management
+
+Update subscription quantities for seat-based billing:
+
+```csharp
+// Set quantity to 10
+await _cashier.UpdateQuantityAsync(user, "default", 10);
+
+// Add 3 seats
+await _cashier.IncrementQuantityAsync(user, "default", 3);
+
+// Remove 2 seats (minimum 1)
+await _cashier.DecrementQuantityAsync(user, "default", 2);
+```
+
+## Billing Engines
+
+CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` strategy pattern:
+
+**MollieNative (default)** -- delegates billing to Mollie's Subscription API. Mollie manages the billing cycle and sends webhooks for each payment.
+
+**Managed** -- runs its own billing cycle locally. Schedules `OrderItem` records with `ProcessAt` dates and creates on-demand recurring payments via Mollie mandates. Requires the `CashierBackgroundService` (registered automatically).
+
+```json
+{
+  "CashierMollie": {
+    "BillingEngine": "Managed",
+    "ProcessingInterval": "01:00:00"
+  }
+}
+```
+
+## Coupons
+
+CashierMollie includes a coupon system with fixed and percentage-based discounts.
+
+```csharp
+// Validate and redeem a coupon
+var couponService = serviceProvider.GetRequiredService<ICouponService<string>>();
+await couponService.ValidateAsync("LAUNCH10");
+await couponService.RedeemAsync("LAUNCH10", subscription, user.Id);
+```
+
+Configure coupons in `appsettings.json` (default `ConfigCouponRepository`) or register your own `ICouponRepository`:
+
+```json
+{
+  "CashierMollie": {
+    "Coupons": [
+      { "Code": "LAUNCH10", "Type": "percentage", "Value": 10, "MaxRedemptions": 100 },
+      { "Code": "5OFF", "Type": "fixed", "Value": 5.00 }
+    ]
+  }
+}
+```
+
+## Credits
+
+Manage per-user account credit balances:
+
+```csharp
+var creditService = serviceProvider.GetRequiredService<ICreditService<string>>();
+
+// Add credit
+await creditService.AddCreditAsync(user.Id, 25.00m, "EUR", "Referral bonus");
+
+// Check balance
+decimal balance = await creditService.GetBalanceAsync(user.Id, "EUR");
+
+// Apply credit (returns amount actually applied, capped at balance)
+decimal applied = await creditService.ApplyCreditAsync(user.Id, 10.00m, "EUR");
+```
+
+## One-off Charges
+
+Create single payments using the fluent `IChargeBuilder`:
+
+```csharp
+var result = await _cashier.NewCharge(user, 49.99m)
+    .WithDescription("Premium add-on")
+    .CreateAsync();
+
+if (result.RequiresAction)
+    return Redirect(result.CheckoutUrl!);
+```
+
+## Refunds
+
+Issue partial or complete refunds for payments:
+
+```csharp
+var refundService = serviceProvider.GetRequiredService<IRefundService<string>>();
+
+// Partial refund
+var refund = await refundService.RefundAsync("tr_payment123", 10.00m, "EUR", "Partial refund");
+
+// Full refund
+var fullRefund = await refundService.RefundCompletelyAsync("tr_payment123");
+```
+
+## Payment Method Update
+
+Allow users to update their payment method:
+
+```csharp
+var result = await _cashier.UpdatePaymentMethodAsync(user);
+// Redirect user to result.CheckoutUrl to complete the update
+```
+
 ## First Payment & Mandates
 
 Mollie uses [mandates](https://docs.mollie.com/docs/mandates) for recurring payments. A mandate authorizes you to charge the customer's payment method on a recurring basis.
@@ -433,14 +559,31 @@ CashierMollie dispatches domain events throughout the subscription and payment l
 
 ### Available events
 
-| Event | Description | Properties |
-|-------|-------------|------------|
-| `SubscriptionCreated<TKey>` | A new subscription was activated | `Subscription`, `OwnerId` |
-| `SubscriptionCancelled<TKey>` | A subscription was cancelled | `Subscription`, `OwnerId` |
-| `SubscriptionResumed<TKey>` | A cancelled subscription was resumed | `Subscription`, `OwnerId` |
-| `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed | `Subscription`, `OldPlan`, `NewPlan`, `OwnerId` |
-| `OrderPaymentPaid<TKey>` | A payment was successfully processed | `Payment`, `Subscription?`, `OwnerId` |
-| `OrderPaymentFailed<TKey>` | A payment attempt failed | `Payment`, `Subscription?`, `OwnerId` |
+| Event | Description |
+|-------|-------------|
+| `SubscriptionCreated<TKey>` | A new subscription was activated |
+| `SubscriptionCancelled<TKey>` | A subscription was cancelled |
+| `SubscriptionResumed<TKey>` | A cancelled subscription was resumed |
+| `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed |
+| `SubscriptionQuantityUpdated<TKey>` | Subscription quantity was updated |
+| `OrderPaymentPaid<TKey>` | A payment was successfully processed |
+| `OrderPaymentFailed<TKey>` | A payment attempt failed |
+| `OrderPaymentFailedDueToInvalidMandate<TKey>` | Payment failed due to invalid mandate |
+| `FirstPaymentPaid<TKey>` | First payment (mandate creation) succeeded |
+| `FirstPaymentFailed<TKey>` | First payment (mandate creation) failed |
+| `MandateUpdated<TKey>` | Owner's mandate was updated |
+| `MandateCleared<TKey>` | Owner's mandate was removed |
+| `CouponApplied<TKey>` | A coupon was redeemed on a subscription |
+| `CreditAdded<TKey>` | Credit was added to owner's balance |
+| `CreditApplied<TKey>` | Credit was consumed from owner's balance |
+| `RefundInitiated<TKey>` | A refund was initiated |
+| `RefundProcessed<TKey>` | A refund was processed successfully |
+| `RefundFailed<TKey>` | A refund attempt failed |
+| `ChargebackReceived<TKey>` | A chargeback was received |
+| `OrderCreated<TKey>` | A new order was created |
+| `OrderProcessed<TKey>` | An order was fully processed |
+| `OrderInvoiceAvailable<TKey>` | An invoice is available for an order |
+| `BalanceTurnedStale<TKey>` | Owner's credit balance became stale |
 
 ### Handling events
 
@@ -527,7 +670,7 @@ If you don't register a handler, CashierMollie uses a built-in `NullCashierEvent
 
 ## Database Schema
 
-CashierMollie creates three tables via the `ApplyCashierMollie<TKey>()` model builder extension:
+CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model builder extension:
 
 ### `cashier_subscriptions`
 
@@ -583,6 +726,49 @@ CashierMollie creates three tables via the `ApplyCashierMollie<TKey>()` model bu
 | `CreatedAt` | `datetimeoffset` | Record creation timestamp |
 | `UpdatedAt` | `datetimeoffset` | Last update timestamp |
 
+### `cashier_orders`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `Number` | `varchar(255)` | Order number |
+| `MolliePaymentId` | `varchar(255)?` | Mollie payment ID |
+| `Status` | `varchar(50)` | Order status |
+| `Currency` | `varchar(3)` | ISO 4217 currency code |
+| `Total` | `decimal` | Order total |
+
+### `cashier_credits`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `Currency` | `varchar(3)` | ISO 4217 currency code |
+| `Balance` | `decimal` | Current credit balance |
+
+### `cashier_refunds`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `PaymentId` | `bigint` | FK to payment |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `MollieRefundId` | `varchar(255)` UNIQUE | Mollie refund ID |
+| `Amount` | `decimal` | Refund amount |
+| `Currency` | `varchar(3)` | ISO 4217 currency code |
+| `Status` | `varchar(50)` | Refund status |
+
+### `cashier_redeemed_coupons`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `Code` | `varchar(255)` | Coupon code |
+| `SubscriptionName` | `varchar(255)` | Associated subscription |
+| `TimesLeft` | `int?` | Remaining redemptions |
+
 ## API Reference
 
 ### `ICashierService<TKey>`
@@ -592,31 +778,39 @@ The main entry point for all subscription operations.
 ```csharp
 public interface ICashierService<TKey> where TKey : IEquatable<TKey>
 {
-    // Create a new subscription via the fluent builder
+    // Subscription lifecycle
     ISubscriptionBuilder<TKey> NewSubscription(IBillable<TKey> owner, string name, string plan);
-
-    // Cancel at end of billing period (grace period)
     Task CancelAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-
-    // Cancel immediately without grace period
     Task CancelImmediatelyAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-
-    // Resume a subscription on grace period
     Task ResumeAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-
-    // Change subscription plan
-    Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan,
-        SwapOptions? options = null, CancellationToken ct = default);
+    Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan, ...);
 
     // Status checks
-    Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-    Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-    Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-    Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, ...);
+    Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, ...);
+    Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, ...);
+    Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, ...);
 
     // Retrieve subscriptions
-    Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
-    Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default);
+    Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, ...);
+    Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, ...);
+
+    // Quantity management
+    Task<Subscription<TKey>> UpdateQuantityAsync(IBillable<TKey> owner, string name, int quantity, ...);
+    Task<Subscription<TKey>> IncrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, ...);
+    Task<Subscription<TKey>> DecrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, ...);
+
+    // Customer management
+    Task<string> GetOrCreateMollieCustomerAsync(IBillable<TKey> owner, ...);
+    Task UpdateMollieCustomerAsync(IBillable<TKey> owner, ...);
+
+    // One-off charges
+    IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount);
+
+    // Payment method & mandate
+    Task<PaymentMethodUpdateResult> UpdatePaymentMethodAsync(IBillable<TKey> owner, ...);
+    Task<bool> HasValidMandateAsync(IBillable<TKey> owner, ...);
+    Task RevokeMandateAsync(IBillable<TKey> owner, ...);
 }
 ```
 
@@ -660,21 +854,33 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `WebhookUrl` | `string` | `"/cashier/webhook"` | URL path where Mollie sends payment status updates |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
 | `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
+| `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
+| `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
+| `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | Format string for generated order numbers |
+| `PaymentMethodUpdateAmount` | `decimal` | `0.01` | Amount for payment method update verification |
+| `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 
 ## Roadmap
 
-CashierMollie v0.1.0 covers the core subscription lifecycle. The following features are planned for future releases:
+CashierMollie v0.2.0 covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:
 
+- [x] **Subscription lifecycle** -- create, cancel, resume, swap with grace periods and trials
 - [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
-- [ ] **Coupon / discount system** -- fixed and percentage-based discounts with configurable coupon handlers
+- [x] **Dual billing engine** -- MollieNative and Managed with background processing
+- [x] **Coupon / discount system** -- fixed and percentage-based discounts with configurable handlers
+- [x] **Quantity management** -- increment, decrement, and update subscription quantities
+- [x] **Credit / balance system** -- per-user account credit management
+- [x] **One-off charges** -- single payments with fluent builder
+- [x] **Refund system** -- partial and complete refunds via Mollie
+- [x] **Payment method update** -- flow for customers to change their payment method
+- [x] **Mandate management** -- check validity and revoke mandates
+- [x] **Chargeback handling** -- tracking and events for chargebacks
+- [x] **Invoice interface** -- pluggable IInvoiceGenerator for custom invoice generation
+- [x] **Order model** -- full order pipeline with order items
 - [ ] **Proration** -- credit calculation for mid-cycle plan changes
-- [ ] **Quantity management** -- increment, decrement, and update subscription quantities
-- [ ] **Order model** -- full order pipeline with invoicing and refunds
-- [ ] **Invoice generation** -- HTML/PDF invoices from orders
-- [ ] **Refund system** -- partial and complete refunds
-- [ ] **Credit system** -- account balance and credit management
-- [ ] **Update payment method** -- flow for customers to change their payment method
-- [ ] **Chargeback handling** -- tracking and events for chargebacks
+- [ ] **Invoice generation** -- built-in HTML/PDF invoice renderer
+- [ ] **Plan pricing resolution** -- automatic price lookup for managed billing engine
+- [ ] **Dunning / retry logic** -- automatic payment retry with escalation
 
 ## Contributing
 
