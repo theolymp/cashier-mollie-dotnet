@@ -2,13 +2,13 @@ using System.ComponentModel.DataAnnotations;
 
 namespace CashierMollie.Models;
 
-public class Payment
+public class Payment<TKey> where TKey : IEquatable<TKey>
 {
     [Key]
     public long Id { get; set; }
 
     [Required]
-    public string OwnerId { get; set; } = default!;
+    public TKey OwnerId { get; set; } = default!;
 
     public long? SubscriptionId { get; set; }
 
@@ -41,5 +41,5 @@ public class Payment
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     // Navigation
-    public Subscription? Subscription { get; set; }
+    public Subscription<TKey>? Subscription { get; set; }
 }

@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace CashierMollie.Models;
 
-public class OrderItem
+public class OrderItem<TKey> where TKey : IEquatable<TKey>
 {
     [Key]
     public long Id { get; set; }
@@ -10,7 +10,7 @@ public class OrderItem
     public long SubscriptionId { get; set; }
 
     [Required]
-    public string OwnerId { get; set; } = default!;
+    public TKey OwnerId { get; set; } = default!;
 
     [Required]
     [MaxLength(255)]
@@ -39,7 +39,7 @@ public class OrderItem
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     // Navigation
-    public Subscription Subscription { get; set; } = default!;
+    public Subscription<TKey> Subscription { get; set; } = default!;
 
     // Computed
     public decimal Total => UnitPrice * Quantity;

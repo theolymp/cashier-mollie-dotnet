@@ -4,9 +4,9 @@ namespace CashierMollie.Interfaces;
 /// Interface for user models that support Mollie subscriptions.
 /// Implement this on your User/AppUser entity.
 /// </summary>
-public interface IBillable
+public interface IBillable<TKey> where TKey : IEquatable<TKey>
 {
-    string Id { get; }
+    TKey Id { get; }
     string? MollieCustomerId { get; set; }
     string? MollieMandateId { get; set; }
     string? Email { get; }
