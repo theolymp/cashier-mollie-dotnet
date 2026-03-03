@@ -56,6 +56,9 @@ public class OrderItem<TKey> where TKey : IEquatable<TKey>
     /// <summary>When this item was processed.</summary>
     public DateTimeOffset? ProcessedAt { get; set; }
 
+    /// <summary>When this item should be processed (scheduled billing date).</summary>
+    public DateTimeOffset? ProcessAt { get; set; }
+
     /// <summary>When this record was created.</summary>
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

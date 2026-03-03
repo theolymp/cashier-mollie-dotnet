@@ -51,6 +51,7 @@ public static class CashierModelBuilderExtensions
             entity.ToTable("cashier_order_items");
             entity.HasIndex(e => e.OwnerId);
             entity.HasIndex(e => e.MolliePaymentId);
+            entity.HasIndex(e => e.ProcessAt);
         });
 
         modelBuilder.Entity<Payment<TKey>>(entity =>
