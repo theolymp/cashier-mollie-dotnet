@@ -13,6 +13,7 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default);
 }

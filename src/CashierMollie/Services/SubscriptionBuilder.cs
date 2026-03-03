@@ -29,6 +29,10 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
         string name,
         string plan)
     {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(plan);
+
         _db = db;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
@@ -39,7 +43,12 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
     }
 
     public ISubscriptionBuilder<TKey> WithCoupon(string coupon) { _coupon = coupon; return this; }
-    public ISubscriptionBuilder<TKey> TrialDays(int days) { _trialDays = days; return this; }
+    public ISubscriptionBuilder<TKey> TrialDays(int days)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(days);
+        _trialDays = days;
+        return this;
+    }
     public ISubscriptionBuilder<TKey> WithProration() { return this; }
     public ISubscriptionBuilder<TKey> WithMandateOnly() { _mandateOnly = true; return this; }
     public ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata) { _metadata = metadata; return this; }

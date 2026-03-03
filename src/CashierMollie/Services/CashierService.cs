@@ -34,8 +34,9 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     {
         var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
 
-        // Grace period: end at current cycle end (or 30 days from cycle start if no cycle info)
-        sub.EndsAt = sub.CycleStartedAt?.AddDays(30) ?? DateTimeOffset.UtcNow.AddDays(30);
+        // Grace period: end at current cycle end (or configured days from cycle start)
+        var graceDays = _options.GracePeriodDays;
+        sub.EndsAt = sub.CycleStartedAt?.AddDays(graceDays) ?? DateTimeOffset.UtcNow.AddDays(graceDays);
         sub.Status = SubscriptionStatus.Cancelled;
         sub.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -117,6 +118,12 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);
         return sub?.OnTrial() == true;
+    }
+
+    public async Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
+    {
+        var sub = await GetSubscriptionAsync(owner, name, ct);
+        return sub?.IsCancelled() == true;
     }
 
     public Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)

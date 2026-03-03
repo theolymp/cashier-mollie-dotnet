@@ -193,6 +193,39 @@ public class CashierServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task IsCancelledAsync_ReturnsTrueWhenCancelled()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1",
+            Name = "default",
+            Plan = "pro",
+            Status = SubscriptionStatus.Cancelled,
+            EndsAt = DateTimeOffset.UtcNow.AddDays(7),
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        Assert.True(await _sut.IsCancelledAsync(_owner, "default"));
+    }
+
+    [Fact]
+    public async Task IsCancelledAsync_ReturnsFalseWhenActive()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1",
+            Name = "default",
+            Plan = "pro",
+            Status = SubscriptionStatus.Active,
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        Assert.False(await _sut.IsCancelledAsync(_owner, "default"));
+    }
+
+    [Fact]
     public async Task GetSubscriptionsAsync_ReturnsAllForOwner()
     {
         _db.Subscriptions.Add(new Subscription<string> { OwnerId = "user-1", Name = "default", Plan = "pro", Status = SubscriptionStatus.Active });

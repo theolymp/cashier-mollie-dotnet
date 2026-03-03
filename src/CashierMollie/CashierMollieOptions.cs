@@ -18,4 +18,7 @@ public class CashierMollieOptions
 
     /// <summary>Webhook URL for Mollie payment notifications</summary>
     public string WebhookUrl { get; set; } = "/cashier/webhook";
+
+    /// <summary>Number of days for the grace period after cancellation (default: 30)</summary>
+    public int GracePeriodDays { get; set; } = 30;
 }

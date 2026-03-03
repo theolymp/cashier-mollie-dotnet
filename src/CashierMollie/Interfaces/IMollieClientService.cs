@@ -29,7 +29,7 @@ public interface IMollieClientService
     Task<SubscriptionResponse> GetSubscriptionAsync(string customerId, string subscriptionId, CancellationToken ct = default);
     Task CancelSubscriptionAsync(string customerId, string subscriptionId, CancellationToken ct = default);
     Task<SubscriptionResponse> UpdateSubscriptionAsync(string customerId, string subscriptionId,
-        decimal? amount = null, string? description = null, CancellationToken ct = default);
+        decimal? amount = null, string? currency = null, string? description = null, CancellationToken ct = default);
 
     // Mandates
     Task<MandateResponse> GetMandateAsync(string customerId, string mandateId, CancellationToken ct = default);

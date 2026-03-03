@@ -36,7 +36,7 @@ public class CashierWebhookMiddleware
             try
             {
                 var webhookService = context.RequestServices.GetRequiredService<IWebhookService>();
-                await webhookService.HandlePaymentAsync(paymentId);
+                await webhookService.HandlePaymentAsync(paymentId, context.RequestAborted);
                 context.Response.StatusCode = 200;
             }
             catch (Exception ex)

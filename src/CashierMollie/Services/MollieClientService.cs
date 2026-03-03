@@ -95,10 +95,10 @@ public class MollieClientService : IMollieClientService
         => _subscriptionClient.CancelSubscriptionAsync(customerId, subscriptionId, testmode: false, cancellationToken: ct);
 
     public async Task<SubscriptionResponse> UpdateSubscriptionAsync(string customerId, string subscriptionId,
-        decimal? amount, string? description, CancellationToken ct)
+        decimal? amount, string? currency, string? description, CancellationToken ct)
     {
         var request = new SubscriptionUpdateRequest();
-        if (amount.HasValue) request.Amount = new Amount(Currency.EUR, amount.Value);
+        if (amount.HasValue) request.Amount = new Amount(currency ?? Currency.EUR, amount.Value);
         if (description != null) request.Description = description;
         return await _subscriptionClient.UpdateSubscriptionAsync(customerId, subscriptionId, request, ct);
     }
