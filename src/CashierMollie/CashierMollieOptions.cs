@@ -26,4 +26,31 @@ public class CashierMollieOptions
 
     /// <summary>Number of days for the grace period after cancellation. Default is 30.</summary>
     public int GracePeriodDays { get; set; } = 30;
+
+    /// <summary>The billing engine to use. MollieNative uses Mollie's built-in recurring; Managed handles billing logic locally.</summary>
+    public BillingEngineType BillingEngine { get; set; } = BillingEngineType.MollieNative;
+
+    /// <summary>Interval between managed billing engine processing runs. Only used with <see cref="BillingEngineType.Managed"/>.</summary>
+    public TimeSpan ProcessingInterval { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>Format string for order numbers. {0} is the auto-increment order ID.</summary>
+    public string OrderNumberFormat { get; set; } = "ORD-{0:D6}";
+
+    /// <summary>Amount charged for payment method update verification (zero-value mandate check). Default: 0.01 EUR.</summary>
+    public decimal PaymentMethodUpdateAmount { get; set; } = 0.01m;
+
+    /// <summary>URL to redirect the user to after updating their payment method.</summary>
+    public string PaymentMethodUpdateRedirectUrl { get; set; } = "/billing/payment-method-updated";
+}
+
+/// <summary>
+/// Determines which billing engine is used for subscription management.
+/// </summary>
+public enum BillingEngineType
+{
+    /// <summary>Use Mollie's built-in recurring payments API. Mollie manages the billing cycle.</summary>
+    MollieNative,
+
+    /// <summary>Manage billing cycles locally. The library creates on-demand payments via Mollie.</summary>
+    Managed
 }
