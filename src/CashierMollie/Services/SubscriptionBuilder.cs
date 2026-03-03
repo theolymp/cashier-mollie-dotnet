@@ -1,13 +1,18 @@
 using CashierMollie.Data;
-using CashierMollie.Events;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
 
 namespace CashierMollie.Services;
 
+/// <summary>
+/// Fluent builder for creating subscriptions. Collects configuration (trial days, coupons, etc.)
+/// and delegates the actual creation to <see cref="IBillingEngine{TKey}"/> via <see cref="SubscriptionOptions"/>.
+/// </summary>
+/// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
 public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
 {
     private readonly CashierDbContext<TKey> _db;
+    private readonly IBillingEngine<TKey> _engine;
     private readonly IMollieClientService _mollieClient;
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
@@ -18,10 +23,23 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
     private string? _coupon;
     private int _trialDays;
     private bool _mandateOnly;
+    private bool _prorate;
     private Dictionary<string, string>? _metadata;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="SubscriptionBuilder{TKey}"/>.
+    /// </summary>
+    /// <param name="db">The CashierMollie database context.</param>
+    /// <param name="engine">The billing engine used for subscription creation.</param>
+    /// <param name="mollieClient">The Mollie API client facade.</param>
+    /// <param name="eventDispatcher">The event dispatcher for lifecycle events.</param>
+    /// <param name="options">CashierMollie configuration options.</param>
+    /// <param name="owner">The billable entity (user) who will own the subscription.</param>
+    /// <param name="name">The subscription name (e.g. "default").</param>
+    /// <param name="plan">The plan identifier.</param>
     public SubscriptionBuilder(
         CashierDbContext<TKey> db,
+        IBillingEngine<TKey> engine,
         IMollieClientService mollieClient,
         ICashierEventDispatcher eventDispatcher,
         CashierMollieOptions options,
@@ -34,6 +52,7 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
         ArgumentException.ThrowIfNullOrWhiteSpace(plan);
 
         _db = db;
+        _engine = engine;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
         _options = options;
@@ -42,90 +61,37 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
         _plan = plan;
     }
 
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> WithCoupon(string coupon) { _coupon = coupon; return this; }
+
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> TrialDays(int days)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(days);
         _trialDays = days;
         return this;
     }
-    public ISubscriptionBuilder<TKey> WithProration() { return this; }
+
+    /// <inheritdoc />
+    public ISubscriptionBuilder<TKey> WithProration() { _prorate = true; return this; }
+
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> WithMandateOnly() { _mandateOnly = true; return this; }
+
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata) { _metadata = metadata; return this; }
 
-    public async Task<SubscriptionResult<TKey>> CreateAsync(CancellationToken ct = default)
+    /// <inheritdoc />
+    public Task<SubscriptionResult<TKey>> CreateAsync(CancellationToken ct = default)
     {
-        // Ensure Mollie customer exists
-        var customerId = _owner.MollieCustomerId;
-        if (string.IsNullOrEmpty(customerId))
+        var options = new SubscriptionOptions
         {
-            var customer = await _mollieClient.CreateCustomerAsync(
-                _owner.Name ?? "Customer", _owner.Email, ct);
-            customerId = customer.Id;
-            _owner.MollieCustomerId = customerId;
-        }
-
-        // Create local subscription record
-        var subscription = new Subscription<TKey>
-        {
-            OwnerId = _owner.Id,
-            Name = _name,
-            Plan = _plan,
-            MollieCustomerId = customerId,
-            Status = SubscriptionStatus.Pending,
+            TrialDays = _trialDays,
+            CouponCode = _coupon,
+            MandateOnly = _mandateOnly,
+            Prorate = _prorate,
+            Metadata = _metadata,
         };
-
-        if (_trialDays > 0)
-            subscription.TrialEndsAt = DateTimeOffset.UtcNow.AddDays(_trialDays);
-
-        _db.Subscriptions.Add(subscription);
-        await _db.SaveChangesAsync(ct);
-
-        // Check if owner has a valid mandate
-        var hasMandate = !string.IsNullOrEmpty(_owner.MollieMandateId);
-        string? checkoutUrl = null;
-        var requiresAction = false;
-
-        if (!hasMandate)
-        {
-            // No mandate — need first payment to acquire one
-            var description = _mandateOnly
-                ? $"Authorization for {_plan}"
-                : $"First payment for {_plan}";
-
-            var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
-                customerId, 0.01m, _options.Currency,
-                description,
-                _options.FirstPaymentRedirectUrl, _options.WebhookUrl, ct);
-
-            // Create local payment record so the webhook can find and process it
-            var localPayment = new Payment<TKey>
-            {
-                OwnerId = _owner.Id,
-                SubscriptionId = subscription.Id,
-                MolliePaymentId = molliePayment.Id,
-                Status = molliePayment.Status ?? "open",
-                Amount = 0.01m,
-                Currency = _options.Currency,
-            };
-            _db.Payments.Add(localPayment);
-            await _db.SaveChangesAsync(ct);
-
-            checkoutUrl = molliePayment.Links?.Checkout?.Href;
-            requiresAction = true;
-        }
-        else
-        {
-            // Has mandate — activate subscription immediately
-            subscription.Status = SubscriptionStatus.Active;
-            subscription.CycleStartedAt = DateTimeOffset.UtcNow;
-            subscription.UpdatedAt = DateTimeOffset.UtcNow;
-            await _db.SaveChangesAsync(ct);
-
-            await _eventDispatcher.DispatchAsync(
-                new SubscriptionCreated<TKey>(subscription, _owner.Id), ct);
-        }
-
-        return new SubscriptionResult<TKey>(subscription, checkoutUrl, requiresAction);
+        return _engine.CreateSubscriptionAsync(_owner, _name, _plan, options, ct);
     }
 }

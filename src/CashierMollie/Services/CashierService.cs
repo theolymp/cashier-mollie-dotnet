@@ -1,5 +1,4 @@
 using CashierMollie.Data;
-using CashierMollie.Events;
 using CashierMollie.Exceptions;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
@@ -8,63 +7,61 @@ using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Services;
 
+/// <summary>
+/// Main entry point for subscription management. Thin coordinator that delegates
+/// lifecycle operations (create, cancel, resume, swap) to <see cref="IBillingEngine{TKey}"/>
+/// and keeps status checks / query methods locally.
+/// </summary>
+/// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
 public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatable<TKey>
 {
     private readonly CashierDbContext<TKey> _db;
+    private readonly IBillingEngine<TKey> _engine;
     private readonly IMollieClientService _mollieClient;
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CashierService{TKey}"/>.
+    /// </summary>
+    /// <param name="db">The CashierMollie database context.</param>
+    /// <param name="engine">The billing engine used for subscription lifecycle operations.</param>
+    /// <param name="mollieClient">The Mollie API client facade.</param>
+    /// <param name="eventDispatcher">The event dispatcher for lifecycle events.</param>
+    /// <param name="options">CashierMollie configuration options.</param>
     public CashierService(
         CashierDbContext<TKey> db,
+        IBillingEngine<TKey> engine,
         IMollieClientService mollieClient,
         ICashierEventDispatcher eventDispatcher,
         IOptions<CashierMollieOptions> options)
     {
         _db = db;
+        _engine = engine;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
     }
 
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> NewSubscription(IBillable<TKey> owner, string name, string plan)
-        => new SubscriptionBuilder<TKey>(_db, _mollieClient, _eventDispatcher, _options, owner, name, plan);
+        => new SubscriptionBuilder<TKey>(_db, _engine, _mollieClient, _eventDispatcher, _options, owner, name, plan);
 
+    /// <inheritdoc />
     public async Task CancelAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
-
-        // Grace period: end at current cycle end (or configured days from cycle start)
-        var graceDays = _options.GracePeriodDays;
-        sub.EndsAt = sub.CycleStartedAt?.AddDays(graceDays) ?? DateTimeOffset.UtcNow.AddDays(graceDays);
-        sub.Status = SubscriptionStatus.Cancelled;
-        sub.UpdatedAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-
-        // Cancel on Mollie side if subscription exists there
-        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(sub.MollieCustomerId))
-            await _mollieClient.CancelSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId, ct);
-
-        await _eventDispatcher.DispatchAsync(
-            new SubscriptionCancelled<TKey>(sub, owner.Id), ct);
+        await _engine.CancelSubscriptionAsync(sub, immediately: false, ct);
     }
 
+    /// <inheritdoc />
     public async Task CancelImmediatelyAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
-
-        sub.EndsAt = DateTimeOffset.UtcNow;
-        sub.Status = SubscriptionStatus.Cancelled;
-        sub.UpdatedAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-
-        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(sub.MollieCustomerId))
-            await _mollieClient.CancelSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId, ct);
-
-        await _eventDispatcher.DispatchAsync(
-            new SubscriptionCancelled<TKey>(sub, owner.Id), ct);
+        await _engine.CancelSubscriptionAsync(sub, immediately: true, ct);
     }
 
+    /// <inheritdoc />
     public async Task ResumeAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionOrThrow(owner, name, ct);
@@ -72,64 +69,51 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
         if (!sub.OnGracePeriod())
             throw new CashierException("Cannot resume a subscription that is not on a grace period.");
 
-        sub.EndsAt = null;
-        sub.Status = SubscriptionStatus.Active;
-        sub.UpdatedAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-
-        await _eventDispatcher.DispatchAsync(
-            new SubscriptionResumed<TKey>(sub, owner.Id), ct);
+        await _engine.ResumeSubscriptionAsync(sub, ct);
     }
 
+    /// <inheritdoc />
     public async Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan,
         SwapOptions? options = null, CancellationToken ct = default)
     {
         var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
-        var oldPlan = sub.Plan;
-
-        sub.Plan = newPlan;
-        sub.UpdatedAt = DateTimeOffset.UtcNow;
-
-        // Update on Mollie side
-        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(sub.MollieCustomerId))
-            await _mollieClient.UpdateSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId, ct: ct);
-
-        await _db.SaveChangesAsync(ct);
-
-        await _eventDispatcher.DispatchAsync(
-            new SubscriptionPlanSwapped<TKey>(sub, oldPlan, newPlan, owner.Id), ct);
-
-        return sub;
+        return await _engine.SwapPlanAsync(sub, newPlan, options, ct);
     }
 
+    /// <inheritdoc />
     public async Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);
         return sub?.IsActive() == true || sub?.OnGracePeriod() == true || sub?.OnTrial() == true;
     }
 
+    /// <inheritdoc />
     public async Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);
         return sub?.OnGracePeriod() == true;
     }
 
+    /// <inheritdoc />
     public async Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);
         return sub?.OnTrial() == true;
     }
 
+    /// <inheritdoc />
     public async Task<bool> IsCancelledAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);
         return sub?.IsCancelled() == true;
     }
 
+    /// <inheritdoc />
     public Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
         => _db.Subscriptions.FirstOrDefaultAsync(
             s => s.OwnerId.Equals(owner.Id) && s.Name == name, ct);
 
+    /// <inheritdoc />
     public Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default)
         => _db.Subscriptions.Where(s => s.OwnerId.Equals(owner.Id)).ToListAsync(ct);
 

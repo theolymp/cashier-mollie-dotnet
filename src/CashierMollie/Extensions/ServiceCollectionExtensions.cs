@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
 
         // CashierMollie services
         services.AddScoped<IMollieClientService, MollieClientService>();
+        services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
         services.AddScoped<ICashierService<TKey>, CashierService<TKey>>();
         services.AddScoped<IWebhookService, WebhookService<TKey>>();
 

@@ -29,7 +29,8 @@ public class CashierServiceTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _sut = new CashierService<string>(_db, _mollieClient, _eventDispatcher, options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
+        _sut = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options);
         _owner = new TestBillable("user-1", "cst_test", "mdt_test");
     }
 
