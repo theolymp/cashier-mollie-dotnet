@@ -20,23 +20,39 @@ public static class ServiceCollectionExtensions
         Action<DbContextOptionsBuilder>? dbContextOptions = null)
         where TKey : IEquatable<TKey>
     {
-        // Configuration
         services.Configure<CashierMollieOptions>(
             configuration.GetSection(CashierMollieOptions.SectionName));
 
-        // EF Core DbContext
         if (dbContextOptions != null)
             services.AddDbContext<CashierDbContext<TKey>>(dbContextOptions);
 
-        // CashierMollie services
+        // Core services
         services.AddScoped<IMollieClientService, MollieClientService>();
-        services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
         services.AddScoped<ICashierService<TKey>, CashierService<TKey>>();
         services.AddScoped<IWebhookService, WebhookService<TKey>>();
+
+        // Billing engine (configured via options)
+        var opts = configuration.GetSection(CashierMollieOptions.SectionName).Get<CashierMollieOptions>()
+            ?? new CashierMollieOptions();
+        if (opts.BillingEngine == BillingEngineType.Managed)
+        {
+            services.AddScoped<IBillingEngine<TKey>, ManagedBillingEngine<TKey>>();
+            services.AddHostedService<CashierBackgroundService<TKey>>();
+        }
+        else
+        {
+            services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
+        }
+
+        // Feature services
+        services.AddScoped<ICouponService<TKey>, CouponService<TKey>>();
+        services.AddScoped<ICreditService<TKey>, CreditService<TKey>>();
         services.AddScoped<IRefundService<TKey>, RefundService<TKey>>();
 
-        // Default no-op event dispatcher (consumer can replace)
+        // Replaceable defaults
         services.TryAddScoped<ICashierEventDispatcher, NullCashierEventDispatcher>();
+        services.TryAddScoped<ICouponRepository, ConfigCouponRepository>();
+        services.TryAddScoped<IInvoiceGenerator<TKey>, NullInvoiceGenerator<TKey>>();
 
         return services;
     }
