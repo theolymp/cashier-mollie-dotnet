@@ -166,6 +166,57 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     public IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount)
         => new ChargeBuilder<TKey>(_db, _mollieClient, _eventDispatcher, _options, owner, amount);
 
+    /// <inheritdoc />
+    public async Task<PaymentMethodUpdateResult> UpdatePaymentMethodAsync(IBillable<TKey> owner,
+        string? redirectUrl = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(owner.MollieCustomerId))
+            throw new CashierException("Owner has no Mollie customer ID.");
+
+        var payment = await _mollieClient.CreateFirstPaymentAsync(
+            owner.MollieCustomerId,
+            _options.PaymentMethodUpdateAmount,
+            _options.Currency,
+            "Update payment method",
+            redirectUrl ?? _options.PaymentMethodUpdateRedirectUrl,
+            _options.WebhookUrl, ct);
+
+        return new PaymentMethodUpdateResult(payment.Links?.Checkout?.Href ?? "");
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> HasValidMandateAsync(IBillable<TKey> owner, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(owner.MollieCustomerId) || string.IsNullOrEmpty(owner.MollieMandateId))
+            return false;
+
+        try
+        {
+            var mandate = await _mollieClient.GetMandateAsync(
+                owner.MollieCustomerId, owner.MollieMandateId, ct);
+            return mandate.Status == "valid";
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RevokeMandateAsync(IBillable<TKey> owner, CancellationToken ct = default)
+    {
+        if (!string.IsNullOrEmpty(owner.MollieCustomerId) && !string.IsNullOrEmpty(owner.MollieMandateId))
+        {
+            await _mollieClient.RevokeMandateAsync(owner.MollieCustomerId, owner.MollieMandateId, ct);
+        }
+
+        var oldMandateId = owner.MollieMandateId;
+        owner.MollieMandateId = null;
+
+        await _eventDispatcher.DispatchAsync(
+            new Events.MandateCleared<TKey>(oldMandateId ?? "", owner.Id), ct);
+    }
+
     private async Task<Subscription<TKey>> GetSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
         => await GetSubscriptionAsync(owner, name, ct)
            ?? throw new CashierException($"No subscription '{name}' found for owner '{owner.Id}'.");

@@ -6,6 +6,8 @@ using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Customer.Response;
+using Mollie.Api.Models.Mandate.Response;
+using Mollie.Api.Models.Payment.Response;
 using NSubstitute;
 
 namespace CashierMollie.Tests.Services;
@@ -323,6 +325,83 @@ public class CashierServiceTests : IDisposable
 
         var result = await _sut.DecrementQuantityAsync(_owner, "default", 10);
         Assert.Equal(1, result.Quantity);
+    }
+
+    [Fact]
+    public async Task UpdatePaymentMethodAsync_ReturnsCheckoutUrl()
+    {
+        var mockPayment = Substitute.For<PaymentResponse>();
+        var mockLinks = Substitute.For<PaymentResponseLinks>();
+        var mockCheckout = Substitute.For<Mollie.Api.Models.Url.UrlLink>();
+        mockCheckout.Href = "https://checkout.mollie.com/test";
+        mockLinks.Checkout = mockCheckout;
+        mockPayment.Links = mockLinks;
+
+        _mollieClient.CreateFirstPaymentAsync(
+            Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(mockPayment);
+
+        var result = await _sut.UpdatePaymentMethodAsync(_owner);
+        Assert.Equal("https://checkout.mollie.com/test", result.CheckoutUrl);
+    }
+
+    [Fact]
+    public async Task UpdatePaymentMethodAsync_ThrowsWhenNoCustomerId()
+    {
+        var owner = new TestBillable("u1"); // no MollieCustomerId
+        await Assert.ThrowsAsync<CashierException>(
+            () => _sut.UpdatePaymentMethodAsync(owner));
+    }
+
+    [Fact]
+    public async Task HasValidMandateAsync_ReturnsTrueWithValidMandate()
+    {
+        var mandate = Substitute.For<MandateResponse>();
+        mandate.Status = "valid";
+        _mollieClient.GetMandateAsync("cst_test", "mdt_test", Arg.Any<CancellationToken>())
+            .Returns(mandate);
+
+        Assert.True(await _sut.HasValidMandateAsync(_owner));
+    }
+
+    [Fact]
+    public async Task HasValidMandateAsync_ReturnsFalseWithNoMandate()
+    {
+        var owner = new TestBillable("u1"); // no mandate or customer
+        Assert.False(await _sut.HasValidMandateAsync(owner));
+    }
+
+    [Fact]
+    public async Task HasValidMandateAsync_ReturnsFalseOnApiException()
+    {
+        _mollieClient.GetMandateAsync("cst_test", "mdt_test", Arg.Any<CancellationToken>())
+            .Returns<MandateResponse>(_ => throw new InvalidOperationException("API error"));
+
+        Assert.False(await _sut.HasValidMandateAsync(_owner));
+    }
+
+    [Fact]
+    public async Task RevokeMandateAsync_ClearsMandate()
+    {
+        await _sut.RevokeMandateAsync(_owner);
+
+        Assert.Null(_owner.MollieMandateId);
+        await _mollieClient.Received(1).RevokeMandateAsync("cst_test", "mdt_test", Arg.Any<CancellationToken>());
+        await _eventDispatcher.Received(1).DispatchAsync(
+            Arg.Any<Events.MandateCleared<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RevokeMandateAsync_NoopWhenNoMandateId()
+    {
+        var owner = new TestBillable("u1"); // no mandate or customer
+        await _sut.RevokeMandateAsync(owner);
+
+        Assert.Null(owner.MollieMandateId);
+        await _mollieClient.DidNotReceive().RevokeMandateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     public void Dispose() => _db.Dispose();

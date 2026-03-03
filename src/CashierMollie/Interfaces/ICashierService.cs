@@ -102,4 +102,28 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// <param name="owner">The billable entity (user) being charged.</param>
     /// <param name="amount">The charge amount (must be positive).</param>
     IChargeBuilder<TKey> NewCharge(IBillable<TKey> owner, decimal amount);
+
+    /// <summary>
+    /// Initiates a payment method update. Returns a checkout URL for the user to update their payment method.
+    /// Creates a first payment (mandate creation) so that Mollie collects new payment details.
+    /// </summary>
+    /// <param name="owner">The billable entity whose payment method should be updated.</param>
+    /// <param name="redirectUrl">Optional redirect URL after the user completes the checkout. Falls back to <see cref="CashierMollieOptions.PaymentMethodUpdateRedirectUrl"/>.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A result containing the Mollie checkout URL.</returns>
+    Task<PaymentMethodUpdateResult> UpdatePaymentMethodAsync(IBillable<TKey> owner,
+        string? redirectUrl = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Checks whether the owner has a valid Mollie mandate.
+    /// Returns false if no customer or mandate ID is set, or if the mandate status is not "valid".
+    /// </summary>
+    Task<bool> HasValidMandateAsync(IBillable<TKey> owner, CancellationToken ct = default);
+
+    /// <summary>
+    /// Revokes the owner's Mollie mandate and clears the local mandate reference.
+    /// Dispatches a <see cref="Events.MandateCleared{TKey}"/> event.
+    /// No-op if the owner has no mandate set.
+    /// </summary>
+    Task RevokeMandateAsync(IBillable<TKey> owner, CancellationToken ct = default);
 }
