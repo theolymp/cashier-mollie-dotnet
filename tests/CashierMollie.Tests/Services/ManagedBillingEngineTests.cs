@@ -109,6 +109,30 @@ public class ManagedBillingEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateSubscriptionAsync_WithTrialDays_SetsTrialEndsAt()
+    {
+        var owner = new TestBillable("u4", "cst_trial", "mdt_trial");
+        var options = new SubscriptionOptions { TrialDays = 14 };
+
+        var result = await _engine.CreateSubscriptionAsync(owner, "default", "pro", options);
+
+        Assert.NotNull(result.Subscription.TrialEndsAt);
+        var daysUntilTrialEnd = (result.Subscription.TrialEndsAt!.Value - DateTimeOffset.UtcNow).TotalDays;
+        Assert.InRange(daysUntilTrialEnd, 13, 15);
+    }
+
+    [Fact]
+    public async Task CreateSubscriptionAsync_WithQuantity_SetsQuantity()
+    {
+        var owner = new TestBillable("u5", "cst_qty", "mdt_qty");
+        var options = new SubscriptionOptions { Quantity = 5 };
+
+        var result = await _engine.CreateSubscriptionAsync(owner, "default", "pro", options);
+
+        Assert.Equal(5, result.Subscription.Quantity);
+    }
+
+    [Fact]
     public async Task CancelSubscriptionAsync_WithGracePeriod_SetsEndsAtInFuture()
     {
         var sub = new Subscription<string>
@@ -161,6 +185,23 @@ public class ManagedBillingEngineTests : IDisposable
 
         await _mollieClient.DidNotReceive().CancelSubscriptionAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CancelSubscriptionAsync_DispatchesEvent()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "u1", Name = "default", Plan = "pro",
+            Status = SubscriptionStatus.Active,
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        await _engine.CancelSubscriptionAsync(sub, immediately: false);
+
+        await _dispatcher.Received(1).DispatchAsync(
+            Arg.Any<SubscriptionCancelled<string>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -323,6 +364,61 @@ public class ManagedBillingEngineTests : IDisposable
         Assert.NotNull(nextItem.ProcessAt);
         var daysUntilNext = (nextItem.ProcessAt!.Value - DateTimeOffset.UtcNow).TotalDays;
         Assert.InRange(daysUntilNext, 29, 31);
+    }
+
+    [Fact]
+    public async Task ProcessDueItemsAsync_AppliesPendingPlanSwap()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "u1", Name = "default", Plan = "pro",
+            NextPlan = "team",
+            MollieCustomerId = "cst_test",
+            Status = SubscriptionStatus.Active,
+            CycleStartedAt = DateTimeOffset.UtcNow.AddDays(-30),
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var payment = new Payment<string>
+        {
+            OwnerId = "u1",
+            SubscriptionId = sub.Id,
+            MolliePaymentId = "tr_initial",
+            MollieMandateId = "mdt_test",
+            Status = "paid",
+            Amount = 9.99m,
+            Currency = "EUR",
+        };
+        _db.Payments.Add(payment);
+
+        var orderItem = new OrderItem<string>
+        {
+            SubscriptionId = sub.Id,
+            OwnerId = "u1",
+            Description = "Pro plan",
+            Currency = "EUR",
+            UnitPrice = 9.99m,
+            Quantity = 1,
+            ProcessAt = DateTimeOffset.UtcNow.AddHours(-1),
+        };
+        _db.OrderItems.Add(orderItem);
+        await _db.SaveChangesAsync();
+
+        var mockPayment = Substitute.For<PaymentResponse>();
+        mockPayment.Id = "tr_recurring";
+        mockPayment.Status = "pending";
+        _mollieClient.CreateRecurringPaymentAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(mockPayment);
+
+        await _engine.ProcessDueItemsAsync();
+
+        // Plan should now be "team" and NextPlan should be cleared
+        await _db.Entry(sub).ReloadAsync();
+        Assert.Equal("team", sub.Plan);
+        Assert.Null(sub.NextPlan);
     }
 
     [Fact]

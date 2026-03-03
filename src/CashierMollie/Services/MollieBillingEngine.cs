@@ -77,7 +77,7 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
         {
             // First payment flow — redirect to Mollie checkout to acquire a mandate
             var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
-                owner.MollieCustomerId, 0.01m, _options.Currency,
+                owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
                 $"First payment for {plan}",
                 _options.FirstPaymentRedirectUrl,
                 _options.WebhookUrl, ct);
@@ -88,7 +88,7 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
                 SubscriptionId = subscription.Id,
                 MolliePaymentId = molliePayment.Id,
                 Status = molliePayment.Status ?? "open",
-                Amount = 0.01m,
+                Amount = _options.PaymentMethodUpdateAmount,
                 Currency = _options.Currency,
             };
             _db.Payments.Add(localPayment);

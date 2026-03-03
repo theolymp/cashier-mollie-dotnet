@@ -83,7 +83,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
         {
             // First payment flow — redirect to Mollie checkout to acquire a mandate
             var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
-                owner.MollieCustomerId, 0.01m, _options.Currency,
+                owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
                 $"First payment for {plan}",
                 _options.FirstPaymentRedirectUrl,
                 _options.WebhookUrl, ct);
@@ -94,7 +94,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
                 SubscriptionId = subscription.Id,
                 MolliePaymentId = molliePayment.Id,
                 Status = molliePayment.Status ?? "open",
-                Amount = 0.01m,
+                Amount = _options.PaymentMethodUpdateAmount,
                 Currency = _options.Currency,
             };
             _db.Payments.Add(localPayment);
@@ -106,20 +106,23 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
         else
         {
             // Direct activation — mandate exists or mandate-only mode
+            var now = DateTimeOffset.UtcNow;
             subscription.Status = SubscriptionStatus.Active;
-            subscription.CycleStartedAt = DateTimeOffset.UtcNow;
-            subscription.UpdatedAt = DateTimeOffset.UtcNow;
+            subscription.CycleStartedAt = now;
+            subscription.UpdatedAt = now;
 
-            // Schedule the first billing OrderItem
+            // Schedule the first billing OrderItem.
+            // UnitPrice starts at 0 — consumers should set pricing via the OrderItem
+            // before the item is processed, or use a pricing hook/event.
             var firstItem = new OrderItem<TKey>
             {
                 SubscriptionId = subscription.Id,
                 OwnerId = owner.Id,
                 Description = $"{plan} subscription",
                 Currency = _options.Currency,
-                UnitPrice = 0m, // Price resolved at processing time from plan config
+                UnitPrice = 0m,
                 Quantity = options.Quantity > 0 ? options.Quantity : 1,
-                ProcessAt = DateTimeOffset.UtcNow.AddDays(DefaultBillingIntervalDays),
+                ProcessAt = now.AddDays(DefaultBillingIntervalDays),
             };
             _db.OrderItems.Add(firstItem);
 
@@ -235,43 +238,63 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
             if (string.IsNullOrEmpty(mandateId))
                 continue;
 
-            // Create a recurring payment via Mollie
-            var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
-                customerId, mandateId, item.UnitPrice * item.Quantity,
-                item.Currency, item.Description,
-                _options.WebhookUrl, ct);
-
-            // Mark the item as processed
-            item.MolliePaymentId = molliePayment.Id;
-            item.MolliePaymentStatus = molliePayment.Status;
-            item.ProcessedAt = now;
-            item.UpdatedAt = now;
-
-            // Update the subscription's cycle start
-            subscription.CycleStartedAt = now;
-            subscription.UpdatedAt = now;
-
-            // Apply pending plan swap if one exists
-            if (!string.IsNullOrEmpty(subscription.NextPlan))
+            try
             {
-                subscription.Plan = subscription.NextPlan;
-                subscription.NextPlan = null;
+                // Create a recurring payment via Mollie
+                var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                    customerId, mandateId, item.UnitPrice * item.Quantity,
+                    item.Currency, item.Description,
+                    _options.WebhookUrl, ct);
+
+                // Mark the item as processed
+                item.MolliePaymentId = molliePayment.Id;
+                item.MolliePaymentStatus = molliePayment.Status;
+                item.ProcessedAt = now;
+                item.UpdatedAt = now;
+
+                // Update the subscription's cycle start
+                subscription.CycleStartedAt = now;
+                subscription.UpdatedAt = now;
+
+                // Apply pending plan swap if one exists
+                if (!string.IsNullOrEmpty(subscription.NextPlan))
+                {
+                    subscription.Plan = subscription.NextPlan;
+                    subscription.NextPlan = null;
+                }
+
+                // Schedule the next OrderItem for the next billing cycle
+                var nextItem = new OrderItem<TKey>
+                {
+                    SubscriptionId = subscription.Id,
+                    OwnerId = item.OwnerId,
+                    Description = item.Description,
+                    Currency = item.Currency,
+                    UnitPrice = item.UnitPrice,
+                    Quantity = item.Quantity,
+                    ProcessAt = now.AddDays(DefaultBillingIntervalDays),
+                };
+                _db.OrderItems.Add(nextItem);
+
+                await _db.SaveChangesAsync(ct);
             }
-
-            // Schedule the next OrderItem for the next billing cycle
-            var nextItem = new OrderItem<TKey>
+            catch (Exception) when (!ct.IsCancellationRequested)
             {
-                SubscriptionId = subscription.Id,
-                OwnerId = item.OwnerId,
-                Description = item.Description,
-                Currency = item.Currency,
-                UnitPrice = item.UnitPrice,
-                Quantity = item.Quantity,
-                ProcessAt = now.AddDays(DefaultBillingIntervalDays),
-            };
-            _db.OrderItems.Add(nextItem);
+                // Log and continue — don't let one failed item prevent processing of others.
+                // The unprocessed item will be retried on the next cycle.
+                await _eventDispatcher.DispatchAsync(
+                    new OrderPaymentFailed<TKey>(
+                        new Payment<TKey>
+                        {
+                            OwnerId = item.OwnerId,
+                            SubscriptionId = item.SubscriptionId,
+                            Amount = item.UnitPrice * item.Quantity,
+                            Currency = item.Currency,
+                            Status = "failed",
+                        },
+                        subscription,
+                        item.OwnerId), ct);
+            }
         }
-
-        await _db.SaveChangesAsync(ct);
     }
 }
