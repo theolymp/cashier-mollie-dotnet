@@ -1,40 +1,92 @@
-# CashierMollie for .NET
+<p align="center">
+  <img src="https://www.mollie.com/assets/images/branding/mollie-logo.svg" alt="Mollie" width="200">
+</p>
 
-Mollie subscription management for ASP.NET Core -- a .NET port of [laravel/cashier-mollie](https://github.com/laravel/cashier-mollie).
+<h1 align="center">CashierMollie for .NET</h1>
 
-CashierMollie provides a fluent API for managing Mollie recurring payments, subscriptions, and mandate-based billing in ASP.NET Core applications using Entity Framework Core.
+<p align="center">
+  <strong>Mollie subscription management for ASP.NET Core</strong><br>
+  A .NET port of the excellent <a href="https://github.com/mollie/laravel-cashier-mollie">mollie/laravel-cashier-mollie</a> package.
+</p>
+
+<p align="center">
+  <a href="https://www.nuget.org/packages/CashierMollie"><img src="https://img.shields.io/nuget/v/CashierMollie.svg" alt="NuGet"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/.NET-10.0-purple.svg" alt=".NET 10">
+</p>
+
+---
+
+CashierMollie provides a fluent, expressive API for managing [Mollie](https://www.mollie.com) recurring payments and subscriptions in ASP.NET Core applications. It handles the complexities of subscription billing so you can focus on your product.
+
+> **Acknowledgement:** This project is heavily inspired by and aims for feature parity with the outstanding [laravel-cashier-mollie](https://github.com/mollie/laravel-cashier-mollie) package, originally created by [Sander van Hooft](https://github.com/sandervanhooft) and maintained by the Laravel/Mollie community. Their thoughtful API design and thorough approach to subscription billing formed the blueprint for this .NET implementation. Thank you for paving the way!
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Getting Started](#getting-started)
+  - [Implement IBillable](#1-implement-ibillable-on-your-user-model)
+  - [Register Services](#2-register-services)
+  - [Database Setup](#3-database-setup)
+- [Subscriptions](#subscriptions)
+  - [Creating Subscriptions](#creating-subscriptions)
+  - [Checking Subscription Status](#checking-subscription-status)
+  - [Cancelling Subscriptions](#cancelling-subscriptions)
+  - [Resuming Subscriptions](#resuming-subscriptions)
+  - [Swapping Plans](#swapping-plans)
+  - [Trial Periods](#trial-periods)
+  - [Grace Periods](#grace-periods)
+  - [Multiple Subscriptions](#multiple-subscriptions)
+- [First Payment & Mandates](#first-payment--mandates)
+- [Webhooks](#webhooks)
+  - [Middleware (Recommended)](#webhook-middleware-recommended)
+  - [Manual Handling](#manual-webhook-handling)
+- [Events](#events)
+  - [Available Events](#available-events)
+  - [Handling Events](#handling-events)
+- [Database Schema](#database-schema)
+- [API Reference](#api-reference)
+  - [ICashierService](#icashierservicetkey)
+  - [ISubscriptionBuilder](#isubscriptionbuildertkey)
+  - [Subscription Model](#subscriptiontkey-model)
+- [Configuration Reference](#configuration-reference)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Credits](#credits)
+- [License](#license)
 
 ## Features
 
-- **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions
-- **First payment flow** -- mandate-based recurring payments via Mollie
+- **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions with a fluent API
+- **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
-- **Coupons** -- apply discount coupons to subscriptions
-- **Grace periods** -- subscriptions remain active until the billing period ends
-- **Webhook handling** -- automatic processing of Mollie payment notifications
-- **Event system** -- react to payment and subscription lifecycle events
-- **EF Core integration** -- Subscription, OrderItem, and Payment entities with migrations
-- **Generic owner key** -- supports `string`, `int`, `Guid`, or any key type for your user model
+- **Grace periods** -- cancelled subscriptions remain active until the billing period ends
+- **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
+- **Event system** -- pluggable `ICashierEventDispatcher` to react to payment and subscription lifecycle events
+- **EF Core integration** -- `Subscription`, `OrderItem`, and `Payment` entities with a single `ModelBuilder` extension
+- **Generic owner key** -- supports `string`, `int`, `Guid`, or any `IEquatable<TKey>` type for your user model
+- **Dependency injection** -- first-class ASP.NET Core DI support with a single `AddCashierMollie<TKey>()` call
+
+## Requirements
+
+- [.NET 10](https://dotnet.microsoft.com/download) or later
+- [Entity Framework Core 10](https://www.nuget.org/packages/Microsoft.EntityFrameworkCore)
+- [Mollie.Api 4.18+](https://www.nuget.org/packages/Mollie.Api)
+- A [Mollie account](https://www.mollie.com/signup) with recurring payments enabled
 
 ## Installation
 
 ```bash
 dotnet add package CashierMollie
+dotnet add package Mollie.Api
 ```
 
-## Quick Start
+CashierMollie wraps Mollie.Api but does not bundle it -- you register the Mollie API clients yourself, giving you full control over Mollie configuration.
 
-### 1. Register services in Program.cs
-
-```csharp
-builder.Services.AddCashierMollie<string>(builder.Configuration);
-
-var app = builder.Build();
-
-app.UseCashierWebhook(); // Auto-handles POST /cashier/webhook
-```
-
-### 2. Add configuration
+## Configuration
 
 Add a `CashierMollie` section to your `appsettings.json`:
 
@@ -42,15 +94,19 @@ Add a `CashierMollie` section to your `appsettings.json`:
 {
   "CashierMollie": {
     "ApiKey": "test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "Locale": "de_DE",
     "Currency": "EUR",
-    "FirstPaymentRedirectUrl": "/billing/success",
-    "WebhookUrl": "https://yourdomain.com/cashier/webhook"
+    "Locale": "de_DE",
+    "WebhookUrl": "https://yourdomain.com/cashier/webhook",
+    "FirstPaymentRedirectUrl": "https://yourdomain.com/billing/return"
   }
 }
 ```
 
-### 3. Implement IBillable on your user model
+> **Important:** For production, use `live_xxx` API keys. The `WebhookUrl` must be a publicly accessible HTTPS URL. For local development, use a tunnel service like [ngrok](https://ngrok.com) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+
+## Getting Started
+
+### 1. Implement IBillable on your user model
 
 ```csharp
 using CashierMollie.Interfaces;
@@ -58,19 +114,72 @@ using Microsoft.AspNetCore.Identity;
 
 public class AppUser : IdentityUser, IBillable<string>
 {
+    // These are required by IBillable<TKey>:
+    // string Id           -- inherited from IdentityUser
+    // string? Email       -- inherited from IdentityUser
+    // string? Name        -- you may need to add this
+
     public string? MollieCustomerId { get; set; }
     public string? MollieMandateId { get; set; }
+    public string? Name { get; set; }
 }
 ```
 
-### 4. Apply EF Core migrations
+`IBillable<TKey>` works with any key type. For example, with `int` keys:
 
 ```csharp
-// In your DbContext
-protected override void OnModelCreating(ModelBuilder modelBuilder)
+public class AppUser : IBillable<int>
 {
-    base.OnModelCreating(modelBuilder);
-    modelBuilder.ApplyCashierMollieModel<string>();
+    public int Id { get; set; }
+    public string? MollieCustomerId { get; set; }
+    public string? MollieMandateId { get; set; }
+    public string? Email { get; set; }
+    public string? Name { get; set; }
+}
+```
+
+### 2. Register services
+
+In your `Program.cs`:
+
+```csharp
+using CashierMollie.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register Mollie API clients (from Mollie.Api package)
+builder.Services.AddMollieApi(options =>
+{
+    options.ApiKey = builder.Configuration["CashierMollie:ApiKey"];
+});
+
+// Register CashierMollie services
+builder.Services.AddCashierMollie<string>(builder.Configuration);
+
+var app = builder.Build();
+
+// Enable automatic webhook handling (optional -- see Webhooks section)
+app.UseCashierWebhook();
+
+app.Run();
+```
+
+### 3. Database setup
+
+CashierMollie uses Entity Framework Core for data persistence. Apply the schema to your existing `DbContext`:
+
+```csharp
+using CashierMollie.Data;
+
+public class AppDbContext : DbContext
+{
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Add CashierMollie tables (cashier_subscriptions, cashier_order_items, cashier_payments)
+        modelBuilder.ApplyCashierMollie<string>();
+    }
 }
 ```
 
@@ -81,120 +190,515 @@ dotnet ef migrations add AddCashierMollieTables
 dotnet ef database update
 ```
 
-## Usage
+> **Note:** You can also provide a separate `DbContext` for CashierMollie via the `dbContextOptions` parameter in `AddCashierMollie<TKey>()` if you prefer to keep billing tables in a separate database.
 
-### Creating a subscription
+## Subscriptions
 
-```csharp
-var result = await cashier.NewSubscription(user, "default", "pro-monthly")
-    .WithCoupon("LAUNCH10")
-    .TrialDays(14)
-    .CreateAsync();
-```
+### Creating subscriptions
 
-The first argument is the billable user, the second is a subscription name (used to distinguish multiple subscriptions per user), and the third is the plan identifier matching your Mollie configuration.
-
-### Cancelling a subscription
+Inject `ICashierService<TKey>` and use the fluent subscription builder:
 
 ```csharp
-await cashier.CancelAsync(user, "default");
-```
-
-Cancelled subscriptions enter a grace period. The user retains access until the current billing period ends.
-
-### Resuming a cancelled subscription
-
-```csharp
-await cashier.ResumeAsync(user, "default");
-```
-
-A subscription can be resumed during its grace period. Once the grace period has expired, a new subscription must be created.
-
-### Swapping plans
-
-```csharp
-await cashier.SwapAsync(user, "default", "team-monthly");
-```
-
-### Checking subscription status
-
-```csharp
-bool isSubscribed = await cashier.IsSubscribedAsync(user, "default");
-bool onTrial = await cashier.OnTrialAsync(user, "default");
-bool onGracePeriod = await cashier.OnGracePeriodAsync(user, "default");
-bool isCancelled = await cashier.IsCancelledAsync(user, "default");
-```
-
-## Webhook Setup
-
-CashierMollie includes a built-in webhook endpoint that processes Mollie payment notifications automatically. Register it with a single call:
-
-```csharp
-app.UseCashierWebhook(); // POST /cashier/webhook
-```
-
-The webhook URL must be publicly accessible and match the `WebhookUrl` in your configuration. For local development, use a tunnel service such as ngrok.
-
-## Events
-
-CashierMollie dispatches events throughout the subscription and payment lifecycle. Implement `ICashierEventDispatcher` to handle them:
-
-```csharp
-public class MyCashierEventHandler : ICashierEventDispatcher
+public class BillingController : Controller
 {
-    public Task DispatchAsync<TEvent>(TEvent evt, CancellationToken ct = default)
+    private readonly ICashierService<string> _cashier;
+
+    public BillingController(ICashierService<string> cashier)
     {
-        return evt switch
+        _cashier = cashier;
+    }
+
+    public async Task<IActionResult> Subscribe(AppUser user)
+    {
+        var result = await _cashier.NewSubscription(user, "default", "pro-monthly")
+            .CreateAsync();
+
+        if (result.RequiresAction)
         {
-            OrderPaymentPaid e => HandlePaymentPaid(e),
-            OrderPaymentFailed e => HandlePaymentFailed(e),
-            SubscriptionCreated e => HandleCreated(e),
-            SubscriptionCancelled e => HandleCancelled(e),
-            SubscriptionResumed e => HandleResumed(e),
-            SubscriptionPlanSwapped e => HandleSwapped(e),
-            _ => Task.CompletedTask
-        };
+            // User needs to complete the first payment via Mollie checkout
+            return Redirect(result.CheckoutUrl!);
+        }
+
+        // Subscription is active immediately (user already has a mandate)
+        return RedirectToAction("Dashboard");
     }
 }
 ```
 
-Register your handler in DI:
+The three arguments to `NewSubscription` are:
+
+| Parameter | Description |
+|-----------|-------------|
+| `owner` | Your user model implementing `IBillable<TKey>` |
+| `name` | A label for this subscription (e.g. `"default"`, `"extra"`) -- used to distinguish multiple subscriptions per user |
+| `plan` | The plan identifier matching your Mollie configuration |
+
+### Checking subscription status
 
 ```csharp
-builder.Services.AddSingleton<ICashierEventDispatcher, MyCashierEventHandler>();
+// Is the user subscribed to the "default" subscription?
+bool isSubscribed = await _cashier.IsSubscribedAsync(user, "default");
+
+// Is the subscription on a trial period?
+bool onTrial = await _cashier.OnTrialAsync(user, "default");
+
+// Is the subscription cancelled but still within the grace period?
+bool onGracePeriod = await _cashier.OnGracePeriodAsync(user, "default");
+
+// Get the full subscription object for detailed inspection
+var subscription = await _cashier.GetSubscriptionAsync(user, "default");
+
+if (subscription != null)
+{
+    bool isActive    = subscription.IsActive();
+    bool isCancelled = subscription.IsCancelled();
+    bool isEnded     = subscription.IsEnded();
+    bool onTrial     = subscription.OnTrial();
+}
+
+// Get all subscriptions for a user
+var allSubs = await _cashier.GetSubscriptionsAsync(user);
 ```
+
+### Cancelling subscriptions
+
+```csharp
+// Cancel at end of billing period (grace period)
+await _cashier.CancelAsync(user, "default");
+```
+
+When cancelled, the subscription enters a **grace period**. The user retains access until the current billing period ends. During this time:
+
+- `IsSubscribedAsync()` returns `true`
+- `OnGracePeriodAsync()` returns `true`
+- `subscription.IsCancelled()` returns `true`
+
+To cancel immediately without a grace period:
+
+```csharp
+await _cashier.CancelImmediatelyAsync(user, "default");
+```
+
+### Resuming subscriptions
+
+A subscription can be resumed during its grace period:
+
+```csharp
+await _cashier.ResumeAsync(user, "default");
+```
+
+After resuming, the subscription is active again and `OnGracePeriodAsync()` returns `false`. Once the grace period has expired (`IsEnded()` returns `true`), a new subscription must be created.
+
+### Swapping plans
+
+```csharp
+// Swap to a different plan
+var updated = await _cashier.SwapAsync(user, "default", "team-monthly");
+```
+
+### Trial periods
+
+```csharp
+var result = await _cashier.NewSubscription(user, "default", "pro-monthly")
+    .TrialDays(14)
+    .CreateAsync();
+
+// Check trial status
+bool onTrial = await _cashier.OnTrialAsync(user, "default");
+```
+
+During the trial period, the user is considered subscribed (`IsSubscribedAsync()` returns `true`).
+
+### Grace periods
+
+When a subscription is cancelled, it enters a grace period until the end of the current billing cycle. During this time the user still has access to the subscribed features.
+
+```csharp
+await _cashier.CancelAsync(user, "default");
+
+// Still has access
+bool subscribed = await _cashier.IsSubscribedAsync(user, "default");   // true
+bool onGrace    = await _cashier.OnGracePeriodAsync(user, "default");  // true
+
+// Can resume during grace period
+await _cashier.ResumeAsync(user, "default");
+```
+
+### Multiple subscriptions
+
+A single user can hold multiple subscriptions, each identified by a unique name:
+
+```csharp
+// Primary subscription
+await _cashier.NewSubscription(user, "default", "pro-monthly").CreateAsync();
+
+// Add-on subscription
+await _cashier.NewSubscription(user, "addons", "extra-storage").CreateAsync();
+
+// Check independently
+bool hasPro    = await _cashier.IsSubscribedAsync(user, "default");
+bool hasAddons = await _cashier.IsSubscribedAsync(user, "addons");
+
+// Cancel only the add-on
+await _cashier.CancelAsync(user, "addons");
+```
+
+## First Payment & Mandates
+
+Mollie uses [mandates](https://docs.mollie.com/docs/mandates) for recurring payments. A mandate authorizes you to charge the customer's payment method on a recurring basis.
+
+CashierMollie handles this automatically:
+
+**If the user already has a mandate** (`MollieMandateId` is set on the `IBillable`):
+- The subscription is activated immediately
+- No checkout redirect needed
+
+**If the user has no mandate**:
+- A "first payment" is created via the Mollie API
+- The user is redirected to Mollie's checkout to authorize recurring payments
+- After successful payment, Mollie sends a webhook to activate the subscription
+
+```csharp
+var result = await _cashier.NewSubscription(user, "default", "pro")
+    .CreateAsync();
+
+if (result.RequiresAction)
+{
+    // Redirect to Mollie checkout for mandate creation
+    return Redirect(result.CheckoutUrl!);
+}
+
+// Already has mandate -- subscription is active
+```
+
+You can force mandate-only mode (authorization without charging):
+
+```csharp
+var result = await _cashier.NewSubscription(user, "default", "pro")
+    .WithMandateOnly()
+    .CreateAsync();
+```
+
+## Webhooks
+
+Mollie uses webhooks to notify your application about payment status changes. CashierMollie provides two approaches.
+
+### Webhook middleware (recommended)
+
+The simplest approach -- register the middleware and CashierMollie handles everything:
+
+```csharp
+app.UseCashierWebhook(); // Handles POST requests to /cashier/webhook
+```
+
+The middleware:
+1. Intercepts POST requests to the configured `WebhookUrl` path
+2. Reads the `id` form field (Mollie payment ID)
+3. Fetches the payment status from Mollie's API
+4. Updates the local payment record
+5. Dispatches events
+6. Always returns HTTP 200 to Mollie (even on errors, to prevent retries)
+
+### Manual webhook handling
+
+If you need more control, inject `IWebhookService` directly:
+
+```csharp
+[ApiController]
+[Route("billing")]
+public class BillingWebhookController : ControllerBase
+{
+    private readonly IWebhookService _webhook;
+
+    public BillingWebhookController(IWebhookService webhook)
+    {
+        _webhook = webhook;
+    }
+
+    [HttpPost("mollie-webhook")]
+    public async Task<IActionResult> HandleMollieWebhook([FromForm] string id)
+    {
+        await _webhook.HandlePaymentAsync(id);
+        return Ok();
+    }
+}
+```
+
+> **Security note:** Mollie does not use webhook signatures. Instead, the webhook handler always fetches the payment details directly from the Mollie API, ensuring data integrity. Consider placing the webhook endpoint behind rate-limiting middleware in production.
+
+## Events
+
+CashierMollie dispatches domain events throughout the subscription and payment lifecycle via `ICashierEventDispatcher`.
 
 ### Available events
 
-| Event | Description |
-|-------|-------------|
-| `OrderPaymentPaid` | A payment was successfully processed |
-| `OrderPaymentFailed` | A payment attempt failed |
-| `SubscriptionCreated` | A new subscription was created |
-| `SubscriptionCancelled` | A subscription was cancelled |
-| `SubscriptionResumed` | A cancelled subscription was resumed |
-| `SubscriptionPlanSwapped` | A subscription was switched to a different plan |
+| Event | Description | Properties |
+|-------|-------------|------------|
+| `SubscriptionCreated<TKey>` | A new subscription was activated | `Subscription`, `OwnerId` |
+| `SubscriptionCancelled<TKey>` | A subscription was cancelled | `Subscription`, `OwnerId` |
+| `SubscriptionResumed<TKey>` | A cancelled subscription was resumed | `Subscription`, `OwnerId` |
+| `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed | `Subscription`, `OldPlan`, `NewPlan`, `OwnerId` |
+| `OrderPaymentPaid<TKey>` | A payment was successfully processed | `Payment`, `Subscription?`, `OwnerId` |
+| `OrderPaymentFailed<TKey>` | A payment attempt failed | `Payment`, `Subscription?`, `OwnerId` |
+
+### Handling events
+
+Implement `ICashierEventDispatcher` and register it in DI:
+
+```csharp
+using CashierMollie.Events;
+using CashierMollie.Interfaces;
+
+public class CashierEventHandler : ICashierEventDispatcher
+{
+    private readonly ILogger<CashierEventHandler> _logger;
+
+    public CashierEventHandler(ILogger<CashierEventHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public Task DispatchAsync<T>(T @event, CancellationToken ct = default) where T : notnull
+    {
+        return @event switch
+        {
+            SubscriptionCreated<string> e =>
+                OnSubscriptionCreated(e, ct),
+
+            SubscriptionCancelled<string> e =>
+                OnSubscriptionCancelled(e, ct),
+
+            OrderPaymentPaid<string> e =>
+                OnPaymentReceived(e, ct),
+
+            OrderPaymentFailed<string> e =>
+                OnPaymentFailed(e, ct),
+
+            _ => Task.CompletedTask
+        };
+    }
+
+    private async Task OnSubscriptionCreated(SubscriptionCreated<string> e, CancellationToken ct)
+    {
+        _logger.LogInformation("Subscription '{Name}' created for user {UserId}",
+            e.Subscription.Name, e.OwnerId);
+
+        // Send welcome email, provision resources, etc.
+    }
+
+    private async Task OnSubscriptionCancelled(SubscriptionCancelled<string> e, CancellationToken ct)
+    {
+        _logger.LogInformation("Subscription '{Name}' cancelled for user {UserId}",
+            e.Subscription.Name, e.OwnerId);
+    }
+
+    private async Task OnPaymentReceived(OrderPaymentPaid<string> e, CancellationToken ct)
+    {
+        _logger.LogInformation("Payment {PaymentId} received: {Amount} {Currency}",
+            e.Payment.MolliePaymentId, e.Payment.Amount, e.Payment.Currency);
+
+        // Create invoice, send receipt, etc.
+    }
+
+    private async Task OnPaymentFailed(OrderPaymentFailed<string> e, CancellationToken ct)
+    {
+        _logger.LogWarning("Payment {PaymentId} failed for user {UserId}",
+            e.Payment.MolliePaymentId, e.OwnerId);
+
+        // Notify user, retry logic, etc.
+    }
+}
+```
+
+Register your handler in DI (before `AddCashierMollie` or using `Replace`):
+
+```csharp
+// Option A: Register before AddCashierMollie
+builder.Services.AddScoped<ICashierEventDispatcher, CashierEventHandler>();
+builder.Services.AddCashierMollie<string>(builder.Configuration);
+
+// Option B: Or after -- TryAddScoped won't overwrite your registration
+builder.Services.AddCashierMollie<string>(builder.Configuration);
+builder.Services.AddScoped<ICashierEventDispatcher, CashierEventHandler>();
+```
+
+If you don't register a handler, CashierMollie uses a built-in `NullCashierEventDispatcher` that silently discards all events.
+
+## Database Schema
+
+CashierMollie creates three tables via the `ApplyCashierMollie<TKey>()` model builder extension:
+
+### `cashier_subscriptions`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `Name` | `varchar(255)` | Subscription name (e.g. `"default"`) |
+| `Plan` | `varchar(255)` | Plan identifier |
+| `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
+| `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
+| `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |
+| `Quantity` | `decimal?` | Subscription quantity |
+| `TrialEndsAt` | `datetimeoffset?` | End of trial period |
+| `EndsAt` | `datetimeoffset?` | End of subscription / grace period |
+| `CycleStartedAt` | `datetimeoffset?` | Start of current billing cycle |
+| `CreatedAt` | `datetimeoffset` | Record creation timestamp |
+| `UpdatedAt` | `datetimeoffset` | Last update timestamp |
+
+### `cashier_payments`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `SubscriptionId` | `bigint?` | Optional FK to subscription |
+| `MolliePaymentId` | `varchar(255)` UNIQUE | Mollie payment ID |
+| `Status` | `varchar(50)` | Mollie payment status |
+| `Currency` | `varchar(3)` | ISO 4217 currency code |
+| `Amount` | `decimal` | Payment amount |
+| `MollieMandateId` | `varchar(255)?` | Associated mandate ID |
+| `Method` | `varchar(50)?` | Payment method used |
+| `PaidAt` | `datetimeoffset?` | When payment was confirmed |
+| `FailedAt` | `datetimeoffset?` | When payment failed |
+| `CreatedAt` | `datetimeoffset` | Record creation timestamp |
+| `UpdatedAt` | `datetimeoffset` | Last update timestamp |
+
+### `cashier_order_items`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Id` | `bigint` PK | Auto-increment ID |
+| `SubscriptionId` | `bigint` | FK to subscription |
+| `OwnerId` | `TKey` | Foreign key to your user model |
+| `Description` | `varchar(255)` | Line item description |
+| `Currency` | `varchar(3)` | ISO 4217 currency code |
+| `UnitPrice` | `decimal` | Price per unit |
+| `Quantity` | `int` | Number of units |
+| `TaxPercentage` | `decimal` | Tax rate (e.g. `19.0`) |
+| `MolliePaymentId` | `varchar(255)?` | Associated Mollie payment |
+| `MolliePaymentStatus` | `varchar(50)?` | Payment status |
+| `ProcessedAt` | `datetimeoffset?` | When item was processed |
+| `CreatedAt` | `datetimeoffset` | Record creation timestamp |
+| `UpdatedAt` | `datetimeoffset` | Last update timestamp |
+
+## API Reference
+
+### `ICashierService<TKey>`
+
+The main entry point for all subscription operations.
+
+```csharp
+public interface ICashierService<TKey> where TKey : IEquatable<TKey>
+{
+    // Create a new subscription via the fluent builder
+    ISubscriptionBuilder<TKey> NewSubscription(IBillable<TKey> owner, string name, string plan);
+
+    // Cancel at end of billing period (grace period)
+    Task CancelAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    // Cancel immediately without grace period
+    Task CancelImmediatelyAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    // Resume a subscription on grace period
+    Task ResumeAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    // Change subscription plan
+    Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan,
+        SwapOptions? options = null, CancellationToken ct = default);
+
+    // Status checks
+    Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<bool> OnTrialAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    // Retrieve subscriptions
+    Task<Subscription<TKey>?> GetSubscriptionAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    Task<List<Subscription<TKey>>> GetSubscriptionsAsync(IBillable<TKey> owner, CancellationToken ct = default);
+}
+```
+
+### `ISubscriptionBuilder<TKey>`
+
+Fluent builder for creating subscriptions with optional configuration.
+
+```csharp
+public interface ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
+{
+    ISubscriptionBuilder<TKey> WithCoupon(string coupon);
+    ISubscriptionBuilder<TKey> TrialDays(int days);
+    ISubscriptionBuilder<TKey> WithProration();
+    ISubscriptionBuilder<TKey> WithMandateOnly();
+    ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);
+    Task<SubscriptionResult<TKey>> CreateAsync(CancellationToken ct = default);
+}
+```
+
+### `Subscription<TKey>` model
+
+The subscription entity with computed status methods:
+
+```csharp
+subscription.IsActive();      // Active and not ended
+subscription.IsCancelled();   // Has an end date set
+subscription.OnGracePeriod(); // Cancelled but end date is in the future
+subscription.OnTrial();       // Trial period is active
+subscription.IsEnded();       // End date has passed
+```
 
 ## Configuration Reference
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `ApiKey` | -- | Mollie API key (`test_xxx` or `live_xxx`) |
-| `Locale` | `de_DE` | Locale for Mollie checkout pages |
-| `Currency` | `EUR` | Default currency (ISO 4217) |
-| `FirstPaymentRedirectUrl` | `/billing/success` | Redirect URL after first payment |
-| `WebhookUrl` | `/cashier/webhook` | Webhook URL for Mollie notifications |
+All settings are bound from the `CashierMollie` section in your configuration:
 
-## Requirements
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `ApiKey` | `string` | `""` | Your Mollie API key (`test_xxx` for testing, `live_xxx` for production) |
+| `Currency` | `string` | `"EUR"` | Default currency for payments ([ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)) |
+| `Locale` | `string` | `"de_DE"` | Locale for Mollie checkout pages (e.g. `"en_US"`, `"nl_NL"`, `"de_DE"`) |
+| `WebhookUrl` | `string` | `"/cashier/webhook"` | URL path where Mollie sends payment status updates |
+| `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
 
-- .NET 10 or later
-- Entity Framework Core 10
-- A Mollie account with recurring payments enabled
+## Roadmap
+
+CashierMollie v0.1.0 covers the core subscription lifecycle. The following features are planned for future releases:
+
+- [ ] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
+- [ ] **Coupon / discount system** -- fixed and percentage-based discounts with configurable coupon handlers
+- [ ] **Proration** -- credit calculation for mid-cycle plan changes
+- [ ] **Quantity management** -- increment, decrement, and update subscription quantities
+- [ ] **Order model** -- full order pipeline with invoicing and refunds
+- [ ] **Invoice generation** -- HTML/PDF invoices from orders
+- [ ] **Refund system** -- partial and complete refunds
+- [ ] **Credit system** -- account balance and credit management
+- [ ] **Update payment method** -- flow for customers to change their payment method
+- [ ] **Chargeback handling** -- tracking and events for chargebacks
 
 ## Contributing
 
-Contributions are welcome. Please open an issue first to discuss your idea, then fork the repository, create a feature branch, and submit a pull request. Follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+Contributions are welcome! Here's how to get started:
+
+1. **Open an issue** first to discuss your idea or bug report
+2. **Fork** the repository and create a feature branch
+3. **Write tests** for any new functionality
+4. **Follow** [Conventional Commits](https://www.conventionalcommits.org/) for commit messages
+5. **Submit** a pull request
+
+```bash
+# Clone and build
+git clone https://github.com/TheOlymp/cashier-mollie-dotnet.git
+cd cashier-mollie-dotnet
+dotnet build
+
+# Run tests
+dotnet test
+```
+
+## Credits
+
+- **[Sander van Hooft](https://github.com/sandervanhooft)** and the Laravel/Mollie community -- for creating and maintaining [laravel-cashier-mollie](https://github.com/mollie/laravel-cashier-mollie), the inspiration and reference implementation for this project
+- **[Mollie](https://www.mollie.com)** -- for their excellent payment platform and API
+- **[TheOlymp](https://github.com/TheOlymp)** -- creator and maintainer of this .NET port
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+CashierMollie for .NET is open-sourced software licensed under the [MIT License](LICENSE).
