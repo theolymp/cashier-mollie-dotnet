@@ -34,6 +34,10 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         if (localPayment == null)
             return; // Unknown payment, ignore
 
+        // Idempotency: skip if already processed to this status
+        if (localPayment.Status == molliePayment.Status)
+            return;
+
         // Update local record
         localPayment.Status = molliePayment.Status ?? localPayment.Status;
         localPayment.MollieMandateId = molliePayment.MandateId ?? localPayment.MollieMandateId;

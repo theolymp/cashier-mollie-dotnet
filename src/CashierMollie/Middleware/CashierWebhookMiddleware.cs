@@ -33,7 +33,7 @@ public partial class CashierWebhookMiddleware
             var form = await context.Request.ReadFormAsync();
             var paymentId = form["id"].FirstOrDefault();
 
-            if (string.IsNullOrEmpty(paymentId))
+            if (string.IsNullOrEmpty(paymentId) || !paymentId.StartsWith("tr_", StringComparison.Ordinal))
             {
                 context.Response.StatusCode = 400;
                 return;
@@ -45,11 +45,17 @@ public partial class CashierWebhookMiddleware
                 await webhookService.HandlePaymentAsync(paymentId, context.RequestAborted);
                 context.Response.StatusCode = 200;
             }
+            catch (CashierMollie.Exceptions.CashierException)
+            {
+                // Business logic error — don't retry
+                context.Response.StatusCode = 200;
+            }
             catch (Exception ex)
             {
                 if (logger != null)
                     LogWebhookError(logger, paymentId, ex);
-                context.Response.StatusCode = 200; // Always return 200 to Mollie to prevent retries
+                // Infrastructure error — let Mollie retry
+                context.Response.StatusCode = 500;
             }
 
             return;
