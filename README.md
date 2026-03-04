@@ -524,7 +524,7 @@ The middleware:
 3. Fetches the payment status from Mollie's API
 4. Updates the local payment record
 5. Dispatches events
-6. Always returns HTTP 200 to Mollie (even on errors, to prevent retries)
+6. Returns HTTP 200 on success or business logic errors; HTTP 500 on infrastructure errors (so Mollie retries)
 
 ### Manual webhook handling
 
@@ -661,7 +661,7 @@ Register your handler in DI (before `AddCashierMollie` or using `Replace`):
 builder.Services.AddScoped<ICashierEventDispatcher, CashierEventHandler>();
 builder.Services.AddCashierMollie<string>(builder.Configuration);
 
-// Option B: Or after -- TryAddScoped won't overwrite your registration
+// Option B: Or after -- TryAddSingleton won't overwrite your registration
 builder.Services.AddCashierMollie<string>(builder.Configuration);
 builder.Services.AddScoped<ICashierEventDispatcher, CashierEventHandler>();
 ```
@@ -683,7 +683,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
 | `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |
-| `Quantity` | `decimal?` | Subscription quantity |
+| `Quantity` | `int?` | Subscription quantity |
 | `TrialEndsAt` | `datetimeoffset?` | End of trial period |
 | `EndsAt` | `datetimeoffset?` | End of subscription / grace period |
 | `CycleStartedAt` | `datetimeoffset?` | Start of current billing cycle |
