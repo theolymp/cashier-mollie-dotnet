@@ -5,6 +5,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mollie.Api.Models.Payment.Response;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -31,7 +32,7 @@ public class SubscriptionLifecycleTests : IDisposable
             FirstPaymentRedirectUrl = "/billing/success",
         });
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
-        _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options);
+        _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Customer.Response;
 using Mollie.Api.Models.Mandate.Response;
@@ -33,7 +34,7 @@ public class CashierServiceTests : IDisposable
             FirstPaymentRedirectUrl = "/billing/success",
         });
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
-        _sut = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options);
+        _sut = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
         _owner = new TestBillable("user-1", "cst_test", "mdt_test");
     }
 

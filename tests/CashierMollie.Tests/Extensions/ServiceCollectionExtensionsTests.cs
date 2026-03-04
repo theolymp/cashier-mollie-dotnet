@@ -167,7 +167,7 @@ public class ServiceCollectionExtensionsTests
         Assert.Contains(services, d =>
             d.ServiceType == typeof(ICashierEventDispatcher) &&
             d.ImplementationType == typeof(NullCashierEventDispatcher) &&
-            d.Lifetime == ServiceLifetime.Scoped);
+            d.Lifetime == ServiceLifetime.Singleton);
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using CashierMollie.Events;
 using CashierMollie.Interfaces;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -22,7 +23,7 @@ public class CreditIntegrationTests : IDisposable
         {
             Currency = "EUR",
         });
-        _creditService = new CreditService<string>(_db, _eventDispatcher, options);
+        _creditService = new CreditService<string>(_db, _eventDispatcher, options, NullLogger<CreditService<string>>.Instance);
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Refund.Response;
 using NSubstitute;
@@ -22,7 +23,7 @@ public class RefundServiceTests : IDisposable
         _mollieClient = Substitute.For<IMollieClientService>();
         _dispatcher = Substitute.For<ICashierEventDispatcher>();
         var options = Options.Create(new CashierMollieOptions());
-        _service = new RefundService<string>(_db, _mollieClient, _dispatcher, options);
+        _service = new RefundService<string>(_db, _mollieClient, _dispatcher, options, NullLogger<RefundService<string>>.Instance);
     }
 
     private static RefundResponse CreateMockRefundResponse(string id, string status)

@@ -5,6 +5,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Refund.Response;
 using NSubstitute;
@@ -28,7 +29,7 @@ public class RefundIntegrationTests : IDisposable
             ApiKey = "test_xxx",
             Currency = "EUR",
         });
-        _refundService = new RefundService<string>(_db, _mollieClient, _eventDispatcher, options);
+        _refundService = new RefundService<string>(_db, _mollieClient, _eventDispatcher, options, NullLogger<RefundService<string>>.Instance);
     }
 
     private static RefundResponse CreateMockRefundResponse(string id, string status)

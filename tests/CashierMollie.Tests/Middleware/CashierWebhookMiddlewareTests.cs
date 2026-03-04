@@ -102,7 +102,7 @@ public class CashierWebhookMiddlewareTests
     }
 
     [Fact]
-    public async Task InvokeAsync_PostToWebhookPath_ServiceThrows_Returns200()
+    public async Task InvokeAsync_PostToWebhookPath_ServiceThrows_Returns500()
     {
         var nextCalled = false;
         RequestDelegate next = _ => { nextCalled = true; return Task.CompletedTask; };
@@ -111,12 +111,12 @@ public class CashierWebhookMiddlewareTests
 
         _webhookService
             .HandlePaymentAsync("tr_error456", Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("Simulated Mollie processing error"));
+            .ThrowsAsync(new InvalidOperationException("Simulated infrastructure error"));
 
         await middleware.InvokeAsync(context);
 
-        // Mollie always gets 200 to prevent retries
-        Assert.Equal(200, context.Response.StatusCode);
+        // Infrastructure errors return 500 so Mollie retries
+        Assert.Equal(500, context.Response.StatusCode);
         Assert.False(nextCalled);
     }
 

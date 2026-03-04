@@ -4,6 +4,7 @@ using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Payment.Response;
 using NSubstitute;
@@ -29,7 +30,7 @@ public class ManagedBillingEngineTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _dispatcher, options);
+        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _dispatcher, options, NullLogger<ManagedBillingEngine<string>>.Instance);
     }
 
     [Fact]

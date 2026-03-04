@@ -140,11 +140,13 @@ public class WebhookServiceTests : IDisposable
     [Fact]
     public async Task HandlePaymentAsync_WithChargeback_DispatchesChargebackEvent()
     {
+        // Use status "open" so the idempotency check doesn't skip processing
+        // when Mollie reports "paid" with a chargeback amount.
         var localPayment = new Payment<string>
         {
             OwnerId = "user-1",
             MolliePaymentId = "tr_cb",
-            Status = "paid",
+            Status = "open",
             Amount = 10.00m,
         };
         _db.Payments.Add(localPayment);

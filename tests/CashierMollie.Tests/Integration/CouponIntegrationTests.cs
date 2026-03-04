@@ -6,6 +6,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -36,7 +37,7 @@ public class CouponIntegrationTests : IDisposable
         });
 
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
-        _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options);
+        _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
         _couponService = new CouponService<string>(_db, _couponRepo, _eventDispatcher);
     }
 

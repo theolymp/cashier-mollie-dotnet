@@ -5,6 +5,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mollie.Api.Models.Payment.Response;
 using Mollie.Api.Models.Refund.Response;
@@ -48,7 +49,7 @@ public class EndToEndTests : IDisposable
         // Arrange: owner with existing mandate (direct activation, no checkout)
         var owner = new TestBillable("e2e-user-1", "cst_e2e_1", "mdt_e2e_1");
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
-        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options);
+        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Step 1: Create subscription -> should be Active immediately
         var result = await cashier.NewSubscription(owner, "default", "pro-monthly")
@@ -109,8 +110,8 @@ public class EndToEndTests : IDisposable
     {
         // Arrange
         var owner = new TestBillable("e2e-managed-1", "cst_mgd_1", "mdt_mgd_1");
-        var engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
-        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options);
+        var engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<ManagedBillingEngine<string>>.Instance);
+        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Step 1: Create subscription (owner has mandate, direct activation)
         var result = await cashier.NewSubscription(owner, "default", "pro-monthly")
@@ -257,7 +258,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange
         var owner = new TestBillable("e2e-credit-1", "cst_credit_1", "mdt_credit_1");
-        var creditService = new CreditService<string>(_db, _eventDispatcher, _options);
+        var creditService = new CreditService<string>(_db, _eventDispatcher, _options, NullLogger<CreditService<string>>.Instance);
 
         // Step 1: Add 50 EUR credit
         await creditService.AddCreditAsync(owner, 50m, "EUR", "Welcome bonus");
@@ -349,7 +350,7 @@ public class EndToEndTests : IDisposable
             "tr_charge_e2e_1", 25.00m, "EUR", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(mockRefundResponse);
 
-        var refundService = new RefundService<string>(_db, _mollieClient, _eventDispatcher, _options);
+        var refundService = new RefundService<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<RefundService<string>>.Instance);
         var refund = await refundService.RefundAsync(payment, 25.00m, "Customer requested refund");
 
         // Verify: Refund record created
@@ -392,7 +393,7 @@ public class EndToEndTests : IDisposable
         // Create an active subscription for the owner
         var owner = new TestBillable("e2e-coupon-1", "cst_coupon_1", "mdt_coupon_1");
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
-        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options);
+        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         await cashier.NewSubscription(owner, "default", "pro-monthly")
             .CreateAsync();
@@ -437,7 +438,7 @@ public class EndToEndTests : IDisposable
         // Arrange
         var owner = new TestBillable("e2e-trial-1", "cst_trial_1", "mdt_trial_1");
         var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
-        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options);
+        var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Act: create subscription with 14-day trial
         var result = await cashier.NewSubscription(owner, "default", "pro-monthly")

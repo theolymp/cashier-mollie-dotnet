@@ -2,6 +2,7 @@ using CashierMollie.Data;
 using CashierMollie.Interfaces;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -18,7 +19,7 @@ public class CreditServiceTests : IDisposable
         _db = TestDbContextFactory.Create();
         _dispatcher = Substitute.For<ICashierEventDispatcher>();
         var options = Options.Create(new CashierMollieOptions());
-        _service = new CreditService<string>(_db, _dispatcher, options);
+        _service = new CreditService<string>(_db, _dispatcher, options, NullLogger<CreditService<string>>.Instance);
     }
 
     [Fact]
