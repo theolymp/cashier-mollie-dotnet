@@ -6,6 +6,9 @@ namespace CashierMollie.Exceptions;
 /// </summary>
 public class CashierException : Exception
 {
+    /// <summary>Creates a new CashierException with no message.</summary>
+    public CashierException() : base() { }
+
     /// <summary>Creates a new CashierException with a message.</summary>
     public CashierException(string message) : base(message) { }
 

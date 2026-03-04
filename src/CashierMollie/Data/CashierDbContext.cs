@@ -25,6 +25,25 @@ public class CashierDbContext<TKey> : DbContext where TKey : IEquatable<TKey>
     {
         modelBuilder.ApplyCashierMollie<TKey>();
     }
+
+    /// <summary>
+    /// Automatically updates UpdatedAt timestamps and increments RowVersion
+    /// concurrency tokens on modified entities.
+    /// </summary>
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State == EntityState.Modified)
+            {
+                if (entry.CurrentValues.Properties.Any(p => p.Name == "UpdatedAt"))
+                    entry.CurrentValues["UpdatedAt"] = DateTimeOffset.UtcNow;
+                if (entry.CurrentValues.Properties.Any(p => p.Name == "RowVersion"))
+                    entry.CurrentValues["RowVersion"] = (uint)((uint)entry.CurrentValues["RowVersion"]! + 1);
+            }
+        }
+        return await base.SaveChangesAsync(cancellationToken);
+    }
 }
 
 public static class CashierModelBuilderExtensions
@@ -41,6 +60,8 @@ public static class CashierModelBuilderExtensions
             entity.ToTable("cashier_subscriptions");
             entity.HasIndex(e => e.OwnerId);
             entity.HasIndex(e => e.MollieSubscriptionId);
+            entity.HasIndex(e => new { e.OwnerId, e.Name }).IsUnique();
+            entity.Property(e => e.RowVersion).IsConcurrencyToken();
             entity.HasMany(e => e.OrderItems)
                 .WithOne(e => e.Subscription)
                 .HasForeignKey(e => e.SubscriptionId);
@@ -80,6 +101,7 @@ public static class CashierModelBuilderExtensions
         {
             entity.ToTable("cashier_credits");
             entity.HasIndex(e => new { e.OwnerId, e.Currency }).IsUnique();
+            entity.Property(e => e.RowVersion).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<Refund<TKey>>(entity =>
@@ -96,6 +118,7 @@ public static class CashierModelBuilderExtensions
         {
             entity.ToTable("cashier_redeemed_coupons");
             entity.HasIndex(e => e.OwnerId);
+            entity.HasIndex(e => new { e.OwnerId, e.Code, e.SubscriptionName }).IsUnique();
         });
 
         return modelBuilder;

@@ -21,8 +21,11 @@ public class CashierMollieOptions
     /// <summary>URL to redirect the user to after completing the first payment (mandate creation).</summary>
     public string FirstPaymentRedirectUrl { get; set; } = "/billing/success";
 
-    /// <summary>Webhook URL path where Mollie sends payment status notifications.</summary>
-    public string WebhookUrl { get; set; } = "/cashier/webhook";
+    /// <summary>Local path for the webhook middleware to match (e.g. "/cashier/webhook").</summary>
+    public string WebhookPath { get; set; } = "/cashier/webhook";
+
+    /// <summary>Full URL sent to Mollie for webhook callbacks (e.g. "https://example.com/cashier/webhook"). If empty, WebhookPath is used.</summary>
+    public string WebhookUrl { get; set; } = string.Empty;
 
     /// <summary>Number of days for the grace period after cancellation. Default is 30.</summary>
     public int GracePeriodDays { get; set; } = 30;

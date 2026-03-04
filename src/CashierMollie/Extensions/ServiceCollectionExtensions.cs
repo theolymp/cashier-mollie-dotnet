@@ -22,6 +22,8 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<CashierMollieOptions>(
             configuration.GetSection(CashierMollieOptions.SectionName));
+        // Note: ApiKey is not validated here because consumers may set it after registration
+        // (e.g. from a secret store). MollieClientService validates at runtime.
 
         if (dbContextOptions != null)
             services.AddDbContext<CashierDbContext<TKey>>(dbContextOptions);
@@ -49,8 +51,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICreditService<TKey>, CreditService<TKey>>();
         services.AddScoped<IRefundService<TKey>, RefundService<TKey>>();
 
-        // Replaceable defaults
-        services.TryAddScoped<ICashierEventDispatcher, NullCashierEventDispatcher>();
+        // Replaceable defaults (NullCashierEventDispatcher is stateless — singleton is sufficient)
+        services.TryAddSingleton<ICashierEventDispatcher, NullCashierEventDispatcher>();
         services.TryAddScoped<ICouponRepository, ConfigCouponRepository>();
         services.TryAddScoped<IInvoiceGenerator<TKey>, NullInvoiceGenerator<TKey>>();
 

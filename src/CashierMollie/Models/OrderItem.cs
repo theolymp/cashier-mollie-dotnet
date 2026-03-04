@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CashierMollie.Models;
 
@@ -72,11 +73,14 @@ public class OrderItem<TKey> where TKey : IEquatable<TKey>
     public Order<TKey>? Order { get; set; }
 
     /// <summary>Total before tax (UnitPrice * Quantity).</summary>
+    [NotMapped]
     public decimal Total => UnitPrice * Quantity;
 
     /// <summary>Tax amount based on the total and tax percentage.</summary>
+    [NotMapped]
     public decimal TaxAmount => Total * (TaxPercentage / 100m);
 
     /// <summary>Total including tax.</summary>
+    [NotMapped]
     public decimal TotalWithTax => Total + TaxAmount;
 }

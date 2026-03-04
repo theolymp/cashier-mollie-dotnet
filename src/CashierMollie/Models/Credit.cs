@@ -25,6 +25,10 @@ public class Credit<TKey> where TKey : IEquatable<TKey>
     /// <summary>Current credit balance.</summary>
     public decimal Balance { get; set; }
 
+    /// <summary>Optimistic concurrency token, incremented on each update.</summary>
+    [ConcurrencyCheck]
+    public uint RowVersion { get; set; }
+
     /// <summary>When this record was created.</summary>
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

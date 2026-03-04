@@ -45,7 +45,11 @@ public class Subscription<TKey> where TKey : IEquatable<TKey>
     public string Status { get; set; } = SubscriptionStatus.Active;
 
     /// <summary>Subscription quantity (for quantity-based billing).</summary>
-    public decimal? Quantity { get; set; }
+    public int? Quantity { get; set; }
+
+    /// <summary>Optimistic concurrency token, incremented on each update.</summary>
+    [ConcurrencyCheck]
+    public uint RowVersion { get; set; }
 
     /// <summary>When the trial period ends, or null if no trial.</summary>
     public DateTimeOffset? TrialEndsAt { get; set; }
