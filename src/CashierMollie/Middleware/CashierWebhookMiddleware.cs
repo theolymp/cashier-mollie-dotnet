@@ -19,7 +19,7 @@ public partial class CashierWebhookMiddleware
     public CashierWebhookMiddleware(RequestDelegate next, IOptions<CashierMollieOptions> options)
     {
         _next = next;
-        _webhookPath = options.Value.WebhookUrl;
+        _webhookPath = options.Value.WebhookPath;
     }
 
     /// <summary>Processes the HTTP request, handling webhook POSTs at the configured path.</summary>

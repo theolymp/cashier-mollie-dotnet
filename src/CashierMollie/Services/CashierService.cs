@@ -3,6 +3,7 @@ using CashierMollie.Exceptions;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Services;
@@ -20,6 +21,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     private readonly IMollieClientService _mollieClient;
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
+    private readonly ILogger<CashierService<TKey>> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CashierService{TKey}"/>.
@@ -29,18 +31,21 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     /// <param name="mollieClient">The Mollie API client facade.</param>
     /// <param name="eventDispatcher">The event dispatcher for lifecycle events.</param>
     /// <param name="options">CashierMollie configuration options.</param>
+    /// <param name="logger">The logger instance.</param>
     public CashierService(
         CashierDbContext<TKey> db,
         IBillingEngine<TKey> engine,
         IMollieClientService mollieClient,
         ICashierEventDispatcher eventDispatcher,
-        IOptions<CashierMollieOptions> options)
+        IOptions<CashierMollieOptions> options,
+        ILogger<CashierService<TKey>> logger)
     {
         _db = db;
         _engine = engine;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -129,6 +134,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     }
 
     /// <inheritdoc />
+    // TODO: Implement actual update — currently reads only
     public async Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(owner.MollieCustomerId);
@@ -179,9 +185,11 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
             _options.Currency,
             "Update payment method",
             redirectUrl ?? _options.PaymentMethodUpdateRedirectUrl,
-            _options.WebhookUrl, ct);
+            _options.EffectiveWebhookUrl, ct);
 
-        return new PaymentMethodUpdateResult(payment.Links?.Checkout?.Href ?? "");
+        var checkoutUrl = payment.Links?.Checkout?.Href
+            ?? throw new CashierException("Mollie did not return a checkout URL for payment method update.");
+        return new PaymentMethodUpdateResult(checkoutUrl);
     }
 
     /// <inheritdoc />
@@ -196,7 +204,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
                 owner.MollieCustomerId, owner.MollieMandateId, ct);
             return mandate.Status == "valid";
         }
-        catch
+        catch (Exception)
         {
             return false;
         }
@@ -219,7 +227,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
 
     private async Task<Subscription<TKey>> GetSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
         => await GetSubscriptionAsync(owner, name, ct)
-           ?? throw new CashierException($"No subscription '{name}' found for owner '{owner.Id}'.");
+           ?? throw new CashierException($"No active subscription '{name}' found.");
 
     private async Task<Subscription<TKey>> GetActiveSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
     {

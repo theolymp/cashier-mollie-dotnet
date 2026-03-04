@@ -80,7 +80,7 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
                 owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
                 $"First payment for {plan}",
                 _options.FirstPaymentRedirectUrl,
-                _options.WebhookUrl, ct);
+                _options.EffectiveWebhookUrl, ct);
 
             var localPayment = new Payment<TKey>
             {
@@ -185,6 +185,7 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
     public async Task<Subscription<TKey>> UpdateQuantityAsync(Subscription<TKey> subscription,
         int quantity, CancellationToken ct = default)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         int oldQuantity = (int)(subscription.Quantity ?? 1);
         subscription.Quantity = quantity;
         subscription.UpdatedAt = DateTimeOffset.UtcNow;

@@ -1,8 +1,10 @@
 using CashierMollie.Data;
 using CashierMollie.Events;
+using CashierMollie.Exceptions;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Services;
@@ -14,15 +16,18 @@ public class RefundService<TKey> : IRefundService<TKey> where TKey : IEquatable<
     private readonly IMollieClientService _mollieClient;
     private readonly ICashierEventDispatcher _dispatcher;
     private readonly CashierMollieOptions _options;
+    private readonly ILogger<RefundService<TKey>> _logger;
 
     /// <summary>Creates a new RefundService.</summary>
     public RefundService(CashierDbContext<TKey> db, IMollieClientService mollieClient,
-        ICashierEventDispatcher dispatcher, IOptions<CashierMollieOptions> options)
+        ICashierEventDispatcher dispatcher, IOptions<CashierMollieOptions> options,
+        ILogger<RefundService<TKey>> logger)
     {
         _db = db;
         _mollieClient = mollieClient;
         _dispatcher = dispatcher;
         _options = options.Value;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -30,6 +35,11 @@ public class RefundService<TKey> : IRefundService<TKey> where TKey : IEquatable<
         string? description = null, CancellationToken ct = default)
     {
         decimal refundAmount = amount ?? payment.Amount;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(refundAmount);
+        if (payment.AmountRefunded + refundAmount > payment.Amount)
+            throw new CashierException(
+                $"Refund amount {refundAmount} exceeds maximum refundable amount {payment.Amount - payment.AmountRefunded}.");
+
         string currency = payment.Currency;
 
         var mollieRefund = await _mollieClient.CreateRefundAsync(

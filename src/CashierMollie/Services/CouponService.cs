@@ -49,6 +49,12 @@ public class CouponService<TKey> : ICouponService<TKey> where TKey : IEquatable<
             .FirstOrDefaultAsync(s => s.OwnerId.Equals(owner.Id) && s.Name == subscriptionName, ct)
             ?? throw new CashierException($"Subscription '{subscriptionName}' not found.");
 
+        var alreadyRedeemed = await _db.RedeemedCoupons
+            .AnyAsync(c => c.OwnerId!.Equals(owner.Id) && c.Code == code
+                && c.SubscriptionName == subscriptionName, ct);
+        if (alreadyRedeemed)
+            throw new CashierException($"Coupon '{code}' already redeemed for this subscription.");
+
         var redeemed = new RedeemedCoupon<TKey>
         {
             OwnerId = owner.Id,

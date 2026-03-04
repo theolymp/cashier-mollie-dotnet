@@ -3,6 +3,7 @@ using CashierMollie.Events;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Services;
@@ -15,7 +16,7 @@ namespace CashierMollie.Services;
 /// <see cref="ProcessDueItemsAsync"/>, creating on-demand recurring payments.
 /// </summary>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
-public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEquatable<TKey>
+public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEquatable<TKey>
 {
     /// <summary>Default billing interval in days for monthly subscriptions.</summary>
     private const int DefaultBillingIntervalDays = 30;
@@ -24,6 +25,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
     private readonly IMollieClientService _mollieClient;
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
+    private readonly ILogger<ManagedBillingEngine<TKey>> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ManagedBillingEngine{TKey}"/>.
@@ -32,16 +34,19 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
     /// <param name="mollieClient">The Mollie API client facade.</param>
     /// <param name="eventDispatcher">The event dispatcher for lifecycle events.</param>
     /// <param name="options">CashierMollie configuration options.</param>
+    /// <param name="logger">The logger instance.</param>
     public ManagedBillingEngine(
         CashierDbContext<TKey> db,
         IMollieClientService mollieClient,
         ICashierEventDispatcher eventDispatcher,
-        IOptions<CashierMollieOptions> options)
+        IOptions<CashierMollieOptions> options,
+        ILogger<ManagedBillingEngine<TKey>> logger)
     {
         _db = db;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -86,7 +91,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
                 owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
                 $"First payment for {plan}",
                 _options.FirstPaymentRedirectUrl,
-                _options.WebhookUrl, ct);
+                _options.EffectiveWebhookUrl, ct);
 
             var localPayment = new Payment<TKey>
             {
@@ -196,6 +201,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
     public async Task<Subscription<TKey>> UpdateQuantityAsync(Subscription<TKey> subscription,
         int quantity, CancellationToken ct = default)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         int oldQuantity = (int)(subscription.Quantity ?? 1);
         subscription.Quantity = quantity;
         subscription.UpdatedAt = DateTimeOffset.UtcNow;
@@ -222,11 +228,17 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
         {
             var subscription = item.Subscription;
             if (subscription == null || subscription.Status != SubscriptionStatus.Active)
+            {
+                LogSkippedInactiveSubscription(item.Id);
                 continue;
+            }
 
             var customerId = subscription.MollieCustomerId;
             if (string.IsNullOrEmpty(customerId))
+            {
+                LogSkippedNoCustomer(item.Id);
                 continue;
+            }
 
             // Look up the mandate from the most recent successful payment for this owner
             var mandateId = await _db.Payments
@@ -236,7 +248,10 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
                 .FirstOrDefaultAsync(ct);
 
             if (string.IsNullOrEmpty(mandateId))
+            {
+                LogSkippedNoMandate(item.Id);
                 continue;
+            }
 
             try
             {
@@ -244,7 +259,7 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
                 var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
                     customerId, mandateId, item.UnitPrice * item.Quantity,
                     item.Currency, item.Description,
-                    _options.WebhookUrl, ct);
+                    _options.EffectiveWebhookUrl, ct);
 
                 // Mark the item as processed
                 item.MolliePaymentId = molliePayment.Id;
@@ -297,4 +312,13 @@ public class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqu
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: subscription is null or not active")]
+    private partial void LogSkippedInactiveSubscription(long orderItemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no Mollie customer ID")]
+    private partial void LogSkippedNoCustomer(long orderItemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no valid mandate found")]
+    private partial void LogSkippedNoMandate(long orderItemId);
 }

@@ -97,14 +97,14 @@ public class ChargeBuilder<TKey> : IChargeBuilder<TKey> where TKey : IEquatable<
             // Has mandate — direct charge (recurring)
             molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
                 _owner.MollieCustomerId!, _owner.MollieMandateId,
-                _amount, _options.Currency, _description, _options.WebhookUrl, ct);
+                _amount, _options.Currency, _description, _options.EffectiveWebhookUrl, ct);
         }
         else
         {
             // No mandate — checkout flow (first payment)
             molliePayment = await _mollieClient.CreateFirstPaymentAsync(
                 _owner.MollieCustomerId!, _amount, _options.Currency,
-                _description, _options.FirstPaymentRedirectUrl, _options.WebhookUrl, ct);
+                _description, _options.FirstPaymentRedirectUrl, _options.EffectiveWebhookUrl, ct);
             checkoutUrl = molliePayment.Links?.Checkout?.Href;
             requiresAction = true;
         }
