@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-06
+
+### Added
+- `IHasTimestamps` and `IHasConcurrencyToken` interfaces for type-safe automatic timestamp/concurrency handling in `SaveChangesAsync`
+- `UpdateCustomerAsync` on `IMollieClientService` — update customer name/email at Mollie
+- Exception logging in `ManagedBillingEngine.ProcessDueItemsAsync` catch block
+- 283 tests (was 281)
+
+### Fixed
+- **Critical:** Webhook idempotency guard silently dropped chargebacks — Mollie sends chargebacks with status still "paid", so the `status == status` early return prevented chargeback detection
+- `CashierService.UpdateMollieCustomerAsync` now actually updates the customer at Mollie (was read-only stub)
+- `CreditService.ApplyCreditAsync` concurrency retry now reloads only conflicting entities via `ex.Entries` instead of all tracked entities
+
+### Changed
+- All models with `UpdatedAt`/`RowVersion` now implement `IHasTimestamps`/`IHasConcurrencyToken` (Subscription, Payment, OrderItem, Order, Credit, Refund)
+- `SaveChangesAsync` override uses interface casts instead of string-based property lookup — faster and compile-time safe
+- Removed 16 redundant `UpdatedAt` assignments across services (handled automatically by `SaveChangesAsync`)
+
 ## [0.2.0] - 2026-03-04
 
 ### Added
