@@ -425,13 +425,13 @@ Manage per-user account credit balances:
 var creditService = serviceProvider.GetRequiredService<ICreditService<string>>();
 
 // Add credit
-await creditService.AddCreditAsync(user.Id, 25.00m, "EUR", "Referral bonus");
+await creditService.AddCreditAsync(user, 25.00m, "EUR", "Referral bonus");
 
 // Check balance
-decimal balance = await creditService.GetBalanceAsync(user.Id, "EUR");
+decimal balance = await creditService.GetBalanceAsync(user, "EUR");
 
 // Apply credit (returns amount actually applied, capped at balance)
-decimal applied = await creditService.ApplyCreditAsync(user.Id, 10.00m, "EUR");
+decimal applied = await creditService.ApplyCreditAsync(user, 10.00m, "EUR");
 ```
 
 ## One-off Charges
@@ -454,11 +454,11 @@ Issue partial or complete refunds for payments:
 ```csharp
 var refundService = serviceProvider.GetRequiredService<IRefundService<string>>();
 
-// Partial refund
-var refund = await refundService.RefundAsync("tr_payment123", 10.00m, "EUR", "Partial refund");
+// Partial refund (pass the Payment<TKey> entity)
+var refund = await refundService.RefundAsync(payment, 10.00m, "Partial refund");
 
 // Full refund
-var fullRefund = await refundService.RefundCompletelyAsync("tr_payment123");
+var fullRefund = await refundService.RefundCompletelyAsync(payment);
 ```
 
 ## Payment Method Update
@@ -862,7 +862,7 @@ All settings are bound from the `CashierMollie` section in your configuration:
 
 ## Roadmap
 
-CashierMollie v0.2.0 covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:
+CashierMollie v0.3.0 covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:
 
 - [x] **Subscription lifecycle** -- create, cancel, resume, swap with grace periods and trials
 - [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
