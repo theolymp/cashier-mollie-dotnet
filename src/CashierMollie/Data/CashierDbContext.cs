@@ -32,14 +32,15 @@ public class CashierDbContext<TKey> : DbContext where TKey : IEquatable<TKey>
     /// </summary>
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
         foreach (var entry in ChangeTracker.Entries())
         {
             if (entry.State == EntityState.Modified)
             {
-                if (entry.CurrentValues.Properties.Any(p => p.Name == "UpdatedAt"))
-                    entry.CurrentValues["UpdatedAt"] = DateTimeOffset.UtcNow;
-                if (entry.CurrentValues.Properties.Any(p => p.Name == "RowVersion"))
-                    entry.CurrentValues["RowVersion"] = (uint)((uint)entry.CurrentValues["RowVersion"]! + 1);
+                if (entry.Entity is IHasTimestamps timestamped)
+                    timestamped.UpdatedAt = now;
+                if (entry.Entity is IHasConcurrencyToken versioned)
+                    versioned.RowVersion++;
             }
         }
         return await base.SaveChangesAsync(cancellationToken);

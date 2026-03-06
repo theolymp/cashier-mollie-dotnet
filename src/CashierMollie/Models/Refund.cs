@@ -7,7 +7,7 @@ namespace CashierMollie.Models;
 /// Mapped to the "cashier_refunds" table.
 /// </summary>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
-public class Refund<TKey> where TKey : IEquatable<TKey>
+public class Refund<TKey> : IHasTimestamps where TKey : IEquatable<TKey>
 {
     /// <summary>Auto-increment primary key.</summary>
     [Key]

@@ -114,7 +114,6 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             var now = DateTimeOffset.UtcNow;
             subscription.Status = SubscriptionStatus.Active;
             subscription.CycleStartedAt = now;
-            subscription.UpdatedAt = now;
 
             // Schedule the first billing OrderItem.
             // UnitPrice starts at 0 — consumers should set pricing via the OrderItem
@@ -156,7 +155,6 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         }
 
         subscription.Status = SubscriptionStatus.Cancelled;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         // ManagedEngine does NOT cancel on Mollie — no Mollie subscription exists.
@@ -171,7 +169,6 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     {
         subscription.EndsAt = null;
         subscription.Status = SubscriptionStatus.Active;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         await _eventDispatcher.DispatchAsync(
@@ -187,7 +184,6 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         // ManagedEngine: set NextPlan for next-cycle swap by default.
         // The plan swap takes effect when the next OrderItem is processed.
         subscription.NextPlan = newPlan;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);
 
@@ -204,7 +200,6 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         int oldQuantity = (int)(subscription.Quantity ?? 1);
         subscription.Quantity = quantity;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         await _eventDispatcher.DispatchAsync(
@@ -265,11 +260,9 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 item.MolliePaymentId = molliePayment.Id;
                 item.MolliePaymentStatus = molliePayment.Status;
                 item.ProcessedAt = now;
-                item.UpdatedAt = now;
 
                 // Update the subscription's cycle start
                 subscription.CycleStartedAt = now;
-                subscription.UpdatedAt = now;
 
                 // Apply pending plan swap if one exists
                 if (!string.IsNullOrEmpty(subscription.NextPlan))
@@ -293,10 +286,11 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
                 await _db.SaveChangesAsync(ct);
             }
-            catch (Exception) when (!ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 // Log and continue — don't let one failed item prevent processing of others.
                 // The unprocessed item will be retried on the next cycle.
+                LogOrderItemProcessingFailed(item.Id, ex);
                 await _eventDispatcher.DispatchAsync(
                     new OrderPaymentFailed<TKey>(
                         new Payment<TKey>
@@ -321,4 +315,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no valid mandate found")]
     private partial void LogSkippedNoMandate(long orderItemId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to process order item {OrderItemId}")]
+    private partial void LogOrderItemProcessingFailed(long orderItemId, Exception exception);
 }

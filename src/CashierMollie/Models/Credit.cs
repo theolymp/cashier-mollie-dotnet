@@ -7,7 +7,7 @@ namespace CashierMollie.Models;
 /// Mapped to the "cashier_credits" table.
 /// </summary>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
-public class Credit<TKey> where TKey : IEquatable<TKey>
+public class Credit<TKey> : IHasTimestamps, IHasConcurrencyToken where TKey : IEquatable<TKey>
 {
     /// <summary>Auto-increment primary key.</summary>
     [Key]

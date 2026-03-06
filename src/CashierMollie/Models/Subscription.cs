@@ -7,7 +7,7 @@ namespace CashierMollie.Models;
 /// Mapped to the "cashier_subscriptions" table.
 /// </summary>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
-public class Subscription<TKey> where TKey : IEquatable<TKey>
+public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKey : IEquatable<TKey>
 {
     /// <summary>Auto-increment primary key.</summary>
     [Key]

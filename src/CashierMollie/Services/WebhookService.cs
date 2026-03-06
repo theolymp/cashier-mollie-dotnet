@@ -34,14 +34,18 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         if (localPayment == null)
             return; // Unknown payment, ignore
 
-        // Idempotency: skip if already processed to this status
-        if (localPayment.Status == molliePayment.Status)
+        // Check if there's anything new to process
+        bool statusChanged = localPayment.Status != molliePayment.Status;
+        bool hasNewChargeback = molliePayment.AmountChargedBack != null
+            && decimal.Parse(molliePayment.AmountChargedBack.Value,
+                System.Globalization.CultureInfo.InvariantCulture) > localPayment.AmountChargedBack;
+
+        if (!statusChanged && !hasNewChargeback)
             return;
 
         // Update local record
         localPayment.Status = molliePayment.Status ?? localPayment.Status;
         localPayment.MollieMandateId = molliePayment.MandateId ?? localPayment.MollieMandateId;
-        localPayment.UpdatedAt = DateTimeOffset.UtcNow;
 
         if (molliePayment.Status == "paid")
         {
@@ -68,7 +72,6 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         {
             subscription.Status = SubscriptionStatus.Active;
             subscription.CycleStartedAt = DateTimeOffset.UtcNow;
-            subscription.UpdatedAt = DateTimeOffset.UtcNow;
             await _db.SaveChangesAsync(ct);
 
             await _eventDispatcher.DispatchAsync(

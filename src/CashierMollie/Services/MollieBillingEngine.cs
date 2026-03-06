@@ -102,7 +102,6 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
             // Direct activation — mandate exists or mandate-only mode
             subscription.Status = SubscriptionStatus.Active;
             subscription.CycleStartedAt = DateTimeOffset.UtcNow;
-            subscription.UpdatedAt = DateTimeOffset.UtcNow;
             await _db.SaveChangesAsync(ct);
 
             await _eventDispatcher.DispatchAsync(
@@ -128,7 +127,6 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
         }
 
         subscription.Status = SubscriptionStatus.Cancelled;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         // Cancel at Mollie if a remote subscription exists
@@ -149,7 +147,6 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
     {
         subscription.EndsAt = null;
         subscription.Status = SubscriptionStatus.Active;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         await _eventDispatcher.DispatchAsync(
@@ -162,7 +159,6 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
     {
         string oldPlan = subscription.Plan;
         subscription.Plan = newPlan;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
 
         // Update Mollie subscription if one exists remotely
         if (!string.IsNullOrEmpty(subscription.MollieCustomerId) &&
@@ -188,7 +184,6 @@ public class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEqua
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
         int oldQuantity = (int)(subscription.Quantity ?? 1);
         subscription.Quantity = quantity;
-        subscription.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
 
         await _eventDispatcher.DispatchAsync(

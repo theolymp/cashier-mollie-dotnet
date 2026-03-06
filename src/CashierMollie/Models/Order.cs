@@ -7,7 +7,7 @@ namespace CashierMollie.Models;
 /// Mapped to the "cashier_orders" table.
 /// </summary>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
-public class Order<TKey> where TKey : IEquatable<TKey>
+public class Order<TKey> : IHasTimestamps where TKey : IEquatable<TKey>
 {
     /// <summary>Auto-increment primary key.</summary>
     [Key]

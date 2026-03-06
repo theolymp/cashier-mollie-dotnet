@@ -58,7 +58,6 @@ public class RefundService<TKey> : IRefundService<TKey> where TKey : IEquatable<
         _db.Refunds.Add(refund);
 
         payment.AmountRefunded += refundAmount;
-        payment.UpdatedAt = DateTimeOffset.UtcNow;
 
         await _db.SaveChangesAsync(ct);
 

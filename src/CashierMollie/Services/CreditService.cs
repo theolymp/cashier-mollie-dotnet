@@ -59,7 +59,6 @@ public class CreditService<TKey> : ICreditService<TKey> where TKey : IEquatable<
         else
         {
             credit.Balance += amount;
-            credit.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -86,16 +85,15 @@ public class CreditService<TKey> : ICreditService<TKey> where TKey : IEquatable<
 
                 var used = Math.Min(credit.Balance, maxAmount);
                 credit.Balance -= used;
-                credit.UpdatedAt = DateTimeOffset.UtcNow;
                 await _db.SaveChangesAsync(ct);
 
                 await _dispatcher.DispatchAsync(new CreditApplied<TKey>(used, currency, owner.Id), ct);
                 return used;
             }
-            catch (DbUpdateConcurrencyException) when (attempt < maxRetries - 1)
+            catch (DbUpdateConcurrencyException ex) when (attempt < maxRetries - 1)
             {
-                // Reload entity and retry
-                foreach (var entry in _db.ChangeTracker.Entries())
+                // Reload only the conflicting entities and retry
+                foreach (var entry in ex.Entries)
                     await entry.ReloadAsync(ct);
             }
         }
