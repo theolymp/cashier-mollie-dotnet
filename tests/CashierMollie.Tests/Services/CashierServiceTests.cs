@@ -405,5 +405,27 @@ public class CashierServiceTests : IDisposable
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task UpdateMollieCustomerAsync_CallsMollieWithOwnerDetails()
+    {
+        var mockResponse = Substitute.For<CustomerResponse>();
+        mockResponse.Id = "cst_test";
+        _mollieClient.UpdateCustomerAsync("cst_test", "Test User", "test@example.com", Arg.Any<CancellationToken>())
+            .Returns(mockResponse);
+
+        await _sut.UpdateMollieCustomerAsync(_owner);
+
+        await _mollieClient.Received(1).UpdateCustomerAsync(
+            "cst_test", _owner.Name, _owner.Email, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateMollieCustomerAsync_ThrowsWhenNoCustomerId()
+    {
+        var owner = new TestBillable("u1"); // no MollieCustomerId
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _sut.UpdateMollieCustomerAsync(owner));
+    }
+
     public void Dispose() => _db.Dispose();
 }

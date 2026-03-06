@@ -134,11 +134,11 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     }
 
     /// <inheritdoc />
-    // TODO: Implement actual update — currently reads only
     public async Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(owner.MollieCustomerId);
-        await _mollieClient.GetCustomerAsync(owner.MollieCustomerId, ct);
+        await _mollieClient.UpdateCustomerAsync(
+            owner.MollieCustomerId, owner.Name, owner.Email, ct);
     }
 
     /// <inheritdoc />

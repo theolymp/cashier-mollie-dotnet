@@ -46,6 +46,12 @@ public class MollieClientService : IMollieClientService
     public Task<CustomerResponse> GetCustomerAsync(string customerId, CancellationToken ct)
         => _customerClient.GetCustomerAsync(customerId, testmode: false, cancellationToken: ct);
 
+    public async Task<CustomerResponse> UpdateCustomerAsync(string customerId, string? name, string? email, CancellationToken ct)
+    {
+        var request = new CustomerRequest { Name = name, Email = email };
+        return await _customerClient.UpdateCustomerAsync(customerId, request, cancellationToken: ct);
+    }
+
     public async Task<PaymentResponse> CreateFirstPaymentAsync(string customerId, decimal amount,
         string currency, string description, string redirectUrl, string webhookUrl, CancellationToken ct)
     {

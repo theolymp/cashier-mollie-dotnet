@@ -19,6 +19,9 @@ public interface IMollieClientService
     /// <summary>Retrieves a customer from Mollie by ID.</summary>
     Task<CustomerResponse> GetCustomerAsync(string customerId, CancellationToken ct = default);
 
+    /// <summary>Updates a customer's name and/or email in Mollie.</summary>
+    Task<CustomerResponse> UpdateCustomerAsync(string customerId, string? name = null, string? email = null, CancellationToken ct = default);
+
     /// <summary>Creates a first payment (SequenceType.First) to acquire a mandate for recurring billing.</summary>
     Task<PaymentResponse> CreateFirstPaymentAsync(string customerId, decimal amount, string currency,
         string description, string redirectUrl, string webhookUrl, CancellationToken ct = default);
