@@ -34,11 +34,15 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         if (localPayment == null)
             return; // Unknown payment, ignore
 
+        // Parse chargeback amount once (reused in idempotency check and processing)
+        decimal? mollieChargebackAmount = molliePayment.AmountChargedBack != null
+            ? decimal.Parse(molliePayment.AmountChargedBack.Value,
+                System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
         // Check if there's anything new to process
         bool statusChanged = localPayment.Status != molliePayment.Status;
-        bool hasNewChargeback = molliePayment.AmountChargedBack != null
-            && decimal.Parse(molliePayment.AmountChargedBack.Value,
-                System.Globalization.CultureInfo.InvariantCulture) > localPayment.AmountChargedBack;
+        bool hasNewChargeback = mollieChargebackAmount > localPayment.AmountChargedBack;
 
         if (!statusChanged && !hasNewChargeback)
             return;
@@ -79,20 +83,15 @@ public class WebhookService<TKey> : IWebhookService where TKey : IEquatable<TKey
         }
 
         // Check for chargebacks
-        if (molliePayment.AmountChargedBack != null)
+        if (mollieChargebackAmount != null && mollieChargebackAmount > localPayment.AmountChargedBack)
         {
-            decimal chargebackAmount = decimal.Parse(molliePayment.AmountChargedBack.Value,
-                System.Globalization.CultureInfo.InvariantCulture);
-            if (chargebackAmount > localPayment.AmountChargedBack)
-            {
-                decimal newChargeback = chargebackAmount - localPayment.AmountChargedBack;
-                localPayment.AmountChargedBack = chargebackAmount;
-                await _db.SaveChangesAsync(ct);
+            decimal newChargeback = mollieChargebackAmount.Value - localPayment.AmountChargedBack;
+            localPayment.AmountChargedBack = mollieChargebackAmount.Value;
+            await _db.SaveChangesAsync(ct);
 
-                await _eventDispatcher.DispatchAsync(
-                    new ChargebackReceived<TKey>(localPayment, newChargeback,
-                        localPayment.Currency, localPayment.OwnerId), ct);
-            }
+            await _eventDispatcher.DispatchAsync(
+                new ChargebackReceived<TKey>(localPayment, newChargeback,
+                    localPayment.Currency, localPayment.OwnerId), ct);
         }
 
         // Dispatch payment events
