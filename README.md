@@ -414,6 +414,17 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
 }
 ```
 
+> **Set `BillingEngine` explicitly, even when you want the default.** The two engines have
+> different **failure** semantics -- see
+> [who retries a failed payment](#who-retries-a-failed-payment-read-before-handling-orderpaymentfailed).
+> An application that never sets the key stands on the default *implicitly*, so a change to the
+> default would not be a configuration change for you -- it would be a silent behaviour change in
+> your failure path. The default is therefore part of this library's public contract:
+> **changing it is a breaking change** and would only ship in a major version.
+>
+> The engine actually in effect is written to the log at startup, so you can confirm which
+> semantics you are running rather than infer them.
+
 ## Coupons
 
 CashierMollie includes a coupon system with fixed and percentage-based discounts.
