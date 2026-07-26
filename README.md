@@ -114,11 +114,22 @@ Add a `CashierMollie` section to your `appsettings.json`:
     "ApiKey": "test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "Currency": "EUR",
     "Locale": "de_DE",
+    "WebhookPath": "/cashier/webhook",
     "WebhookUrl": "https://yourdomain.com/cashier/webhook",
     "FirstPaymentRedirectUrl": "https://yourdomain.com/billing/return"
   }
 }
 ```
+
+> **⚠️ `WebhookPath` and `WebhookUrl` are two different settings and you need both.**
+> `WebhookPath` is the **local path the middleware listens on**. `WebhookUrl` is the **absolute URL
+> handed to Mollie** so it knows where to call you. **Their path components must match**, or Mollie
+> will call a path your application does not serve.
+>
+> If you leave `WebhookUrl` empty it falls back to `WebhookPath` -- which is a *relative* path, and
+> **Mollie requires an absolute HTTPS URL**. That combination fails only once real payments start,
+> so set `WebhookUrl` explicitly. The library logs a warning at startup when the effective URL is
+> not absolute (added after 0.3.0 -- not present in the published 0.3.0 package).
 
 > **Important:** For production, use `live_xxx` API keys. The `WebhookUrl` must be a publicly accessible HTTPS URL. For local development, use a tunnel service like [ngrok](https://ngrok.com) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
@@ -578,7 +589,7 @@ app.UseCashierWebhook(); // Handles POST requests to /cashier/webhook
 ```
 
 The middleware:
-1. Intercepts POST requests to the configured `WebhookUrl` path
+1. Intercepts POST requests to the configured **`WebhookPath`** (not `WebhookUrl` -- see [Configuration](#configuration))
 2. Reads the `id` form field (Mollie payment ID)
 3. Fetches the payment status from Mollie's API
 4. Updates the local payment record
@@ -935,7 +946,8 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `ApiKey` | `string` | `""` | Your Mollie API key (`test_xxx` for testing, `live_xxx` for production) |
 | `Currency` | `string` | `"EUR"` | Default currency for payments ([ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)) |
 | `Locale` | `string` | `"de_DE"` | Locale for Mollie checkout pages (e.g. `"en_US"`, `"nl_NL"`, `"de_DE"`) |
-| `WebhookUrl` | `string` | `"/cashier/webhook"` | URL path where Mollie sends payment status updates |
+| `WebhookPath` | `string` | `"/cashier/webhook"` | **Local path the middleware matches.** Must correspond to the path component of `WebhookUrl`. |
+| `WebhookUrl` | `string` | `""` (falls back to `WebhookPath`) | **Absolute URL sent to Mollie** for payment callbacks, e.g. `"https://yourdomain.com/cashier/webhook"`. Mollie requires an absolute HTTPS URL -- leaving this empty sends the relative `WebhookPath` instead, which fails once real payments start. |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
 | `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |

@@ -46,6 +46,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
         }
 
+        // Startup diagnostics: surfaces the effective billing engine and warns about a webhook URL
+        // Mollie cannot call back. Both failure modes are otherwise silent until real payments run.
+        services.AddHostedService<CashierStartupDiagnostics>();
+
         // Feature services
         services.AddScoped<ICouponService<TKey>, CouponService<TKey>>();
         services.AddScoped<ICreditService<TKey>, CreditService<TKey>>();

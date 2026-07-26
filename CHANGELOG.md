@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Driven by the first real integration feedback, from `streampact_identity` -- our first production
+consumer. Every item below is something the published docs got wrong or failed to convey, found
+because neither side took the other's claims on trust.
+
+### Added
+- `CashierStartupDiagnostics` -- logs the effective billing engine at startup, and warns when the
+  webhook URL handed to Mollie is not an absolute `http(s)` URL. Both failure modes were previously
+  silent until real payments ran. Distinguishes an *unset* `WebhookUrl` (falls back to the relative
+  `WebhookPath`) from a *set but unusable* one, because the fix differs.
+- 8 tests (291 total, was 283)
+
+### Fixed
+- **Docs, security-relevant:** the webhook trust invariant (Mollie does not sign webhooks; safety
+  depends on never trusting the request body) existed only as a one-line footnote at the end of the
+  Webhooks section. Our first consumer read the README and still had to derive the property from
+  the source. Promoted to a dedicated Security section stating the invariant and the concrete
+  failure mode, mirrored as XML docs on `UseCashierWebhook` and `IWebhookService.HandlePaymentAsync`.
+- **Docs:** README claimed the middleware matches `WebhookUrl`; it matches `WebhookPath`. The config
+  example omitted `WebhookPath` entirely, and the configuration reference listed `WebhookUrl` with
+  the wrong default (`"/cashier/webhook"` instead of empty) while omitting `WebhookPath`. Following
+  the README could leave Mollie calling a path the application does not serve.
+- **Docs:** the quickstart called `AddMollieApi` without showing its `using`. It lives in
+  `Mollie.Api`, not `Mollie.Api.Extensions` -- our first consumer had to decompile to find it.
+- **Docs:** retry ownership was undocumented and inferred incorrectly by a consumer as "the library
+  handles it". It does not: there is no dunning logic at all. Now documented per engine.
+- **Docs:** `Subscription.Name` (the subscription *slot*) vs `Plan` (the priced plan) had no stated
+  semantics, so consumers invented their own.
+
+### Known issues
+- `OrderPaymentFailedDueToInvalidMandate<TKey>` is declared and unit-tested but never dispatched by
+  any code path. Flagged in the README; do not build on it.
+
 ## [0.3.0] - 2026-03-06
 
 ### Added
