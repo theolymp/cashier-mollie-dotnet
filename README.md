@@ -194,7 +194,9 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Add CashierMollie tables (cashier_subscriptions, cashier_order_items, cashier_payments)
+        // Adds all 7 CashierMollie tables: cashier_subscriptions, cashier_order_items,
+        // cashier_payments, cashier_orders, cashier_credits, cashier_refunds,
+        // cashier_redeemed_coupons
         modelBuilder.ApplyCashierMollie<string>();
     }
 }
