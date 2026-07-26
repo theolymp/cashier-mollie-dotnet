@@ -762,8 +762,8 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 |--------|------|-------------|
 | `Id` | `bigint` PK | Auto-increment ID |
 | `OwnerId` | `TKey` | Foreign key to your user model |
-| `Name` | `varchar(255)` | Subscription name (e.g. `"default"`) |
-| `Plan` | `varchar(255)` | Plan identifier |
+| `Name` | `varchar(255)` | The subscription **slot** for this owner, not a display name -- lets one owner hold several subscriptions at once, and is what `Subscribed(name)` matches. Convention: your **product** (e.g. `"modcockpit"`). Defaults to `"default"`. Matched literally, so changing it orphans the subscription. |
+| `Plan` | `varchar(255)` | The **priced plan** being charged (e.g. `"pro-monthly"`) -- what `Swap()` changes. Convention: your **tier**. |
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
 | `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |

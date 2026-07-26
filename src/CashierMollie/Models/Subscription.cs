@@ -17,12 +17,26 @@ public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKe
     [Required]
     public TKey OwnerId { get; set; } = default!;
 
-    /// <summary>Subscription name (e.g. "default"). Used to distinguish multiple subscriptions per user.</summary>
+    /// <summary>
+    /// The subscription <i>slot</i> for this owner -- not a display name. It exists to let one owner
+    /// hold several concurrent subscriptions side by side, and is what you pass to
+    /// <c>Subscribed(name)</c> to ask about a specific one. Defaults to <c>"default"</c>.
+    /// </summary>
+    /// <remarks>
+    /// Consumers typically map their <b>product</b> here and the <b>tier</b> to <see cref="Plan"/>
+    /// (e.g. <c>Name = "modcockpit"</c>, <c>Plan = "pro-monthly"</c>), which matches the intent:
+    /// one subscription per product per owner, priced by plan. Pick a stable machine identifier --
+    /// this value is matched literally, so changing it orphans the existing subscription.
+    /// </remarks>
     [Required]
     [MaxLength(255)]
     public string Name { get; set; } = "default";
 
-    /// <summary>The plan identifier (e.g. "pro-monthly").</summary>
+    /// <summary>
+    /// The priced plan this subscription runs on (e.g. <c>"pro-monthly"</c>) -- the "what is being
+    /// charged", as opposed to <see cref="Name"/>, which is the "which of my subscriptions".
+    /// Changing it is what <c>Swap()</c> does.
+    /// </summary>
     [Required]
     [MaxLength(255)]
     public string Plan { get; set; } = default!;
