@@ -35,7 +35,11 @@ public sealed partial class CashierStartupDiagnostics : IHostedService
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        LogBillingEngine(_options.BillingEngine.ToString());
+        // Pass the enum, not BillingEngine.ToString(): an argument is evaluated at the call site
+        // even when the level is disabled, so formatting here would cost an allocation on every
+        // startup regardless of configuration (CA1873). The generated method formats it lazily,
+        // inside its own IsEnabled check.
+        LogBillingEngine(_options.BillingEngine);
 
         // Must be http(s), not merely "absolute": on Unix, Uri.TryCreate parses a leading-slash
         // path such as "/api/billing/webhook" as an absolute file:/// URI and returns true, so an
@@ -69,7 +73,7 @@ public sealed partial class CashierStartupDiagnostics : IHostedService
     [LoggerMessage(
         Level = LogLevel.Information,
         Message = "CashierMollie billing engine: {BillingEngine}. This determines how failed payments are retried; set CashierMollie:BillingEngine explicitly to avoid depending on the default.")]
-    private partial void LogBillingEngine(string billingEngine);
+    private partial void LogBillingEngine(BillingEngineType billingEngine);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

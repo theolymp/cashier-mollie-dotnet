@@ -16,8 +16,19 @@ because neither side took the other's claims on trust.
   silent until real payments ran. Distinguishes an *unset* `WebhookUrl` (falls back to the relative
   `WebhookPath`) from a *set but unusable* one, because the fix differs.
 - 8 tests (291 total, was 283)
+- `global.json` pinning the SDK, with `rollForward: latestPatch`. The CI workflow now installs from
+  it (`global-json-file`) instead of carrying its own version, so the SDK is stated once.
 
 ### Fixed
+- **Build, `main` was red:** `CashierStartupDiagnostics` passed `BillingEngine.ToString()` to a
+  `LoggerMessage` method. Arguments are evaluated at the call site even when the level is disabled,
+  which CA1873 flags; with repo-wide `TreatWarningsAsErrors` that is a build error. The enum is now
+  passed directly and formatted lazily inside the generated method.
+- **Build reproducibility:** the workflow requested SDK `10.0.x` and the repo had no `global.json`,
+  so the runner resolved whatever was newest. Combined with `AnalysisLevel: latest-recommended` --
+  itself "whatever the newest SDK recommends" -- a newly shipped analyzer rule could turn `main` red
+  with no code change, which is exactly how CA1873 arrived. Two floating references, one pin fixes
+  both: the analyzer set is now a property of the pinned SDK rather than of the calendar.
 - **Docs, security-relevant:** the webhook trust invariant (Mollie does not sign webhooks; safety
   depends on never trusting the request body) existed only as a one-line footnote at the end of the
   Webhooks section. Our first consumer read the README and still had to derive the property from
