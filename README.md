@@ -48,6 +48,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - [Refunds](#refunds)
 - [Payment Method Update](#payment-method-update)
 - [First Payment & Mandates](#first-payment--mandates)
+- [**Security**](#security) -- **webhook trust invariant, read before writing a custom handler**
 - [Webhooks](#webhooks)
   - [Middleware (Recommended)](#webhook-middleware-recommended)
   - [Manual Handling](#manual-webhook-handling)
@@ -160,11 +161,12 @@ public class AppUser : IBillable<int>
 In your `Program.cs`:
 
 ```csharp
-using CashierMollie.Extensions;
+using CashierMollie.Extensions; // AddCashierMollie, UseCashierWebhook
+using Mollie.Api;               // AddMollieApi  <-- NOT Mollie.Api.Extensions
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Mollie API clients (from Mollie.Api package)
+// Register Mollie API clients (from the Mollie.Api package)
 builder.Services.AddMollieApi(options =>
 {
     options.ApiKey = builder.Configuration["CashierMollie:ApiKey"];
@@ -180,6 +182,12 @@ app.UseCashierWebhook();
 
 app.Run();
 ```
+
+> **Watch the namespaces -- they differ, and the wrong guess fails to compile with no hint where to look.**
+> `AddCashierMollie` and `UseCashierWebhook` live in `CashierMollie.Extensions`, but `AddMollieApi`
+> lives in **`Mollie.Api`** -- *not* in `Mollie.Api.Extensions`, which exists but holds only internal
+> helpers. You write these two registration calls in one breath, so it is natural to assume one
+> `using` covers both. Our first production consumer had to decompile the package to find this.
 
 ### 3. Database setup
 
@@ -508,7 +516,56 @@ var result = await _cashier.NewSubscription(user, "default", "pro")
     .CreateAsync();
 ```
 
+## Security
+
+### The webhook trust invariant -- read this before writing your own handler
+
+**Mollie webhooks are not signed.** There is no HMAC, no shared secret, and no way to prove a
+request came from Mollie. Your webhook endpoint must be publicly reachable, so anyone on the
+internet can POST anything to it.
+
+CashierMollie is safe under that assumption because of one deliberate rule:
+
+> **The webhook body is untrusted input. The only thing ever read from it is the `id` field, and
+> that is used solely as a lookup key. Every value that changes state -- status, amount, refunds,
+> chargebacks -- is fetched from Mollie over an authenticated API call.**
+
+That is an **invariant, not an implementation detail**, and it can be broken from the outside:
+
+```csharp
+// DANGEROUS -- do not do this in a custom handler.
+// Saves one API call and turns a public, unauthenticated endpoint into a
+// "mark any payment as paid" primitive for anyone who can guess a payment ID.
+[HttpPost("mollie-webhook")]
+public async Task<IActionResult> Handle([FromForm] string id, [FromForm] string status)
+{
+    if (status == "paid") await _orders.MarkPaidAsync(id); // trusts the body
+    return Ok();
+}
+```
+
+The safe version never believes the payload:
+
+```csharp
+[HttpPost("mollie-webhook")]
+public async Task<IActionResult> Handle([FromForm] string id)
+{
+    await _webhook.HandlePaymentAsync(id); // re-fetches from Mollie internally
+    return Ok();
+}
+```
+
+**If you use `UseCashierWebhook()`, this is handled for you.** If you implement your own endpoint
+around `IWebhookService`, you take ownership of the invariant. Treat the payload as nothing more
+than a hint that *something* about payment `id` may have changed.
+
+Additional hardening worth applying: rate-limit the endpoint (it is public and unauthenticated by
+nature), and do not log the raw body at info level -- it is attacker-controlled.
+
 ## Webhooks
+
+> **Before customising anything here, read [The webhook trust invariant](#the-webhook-trust-invariant----read-this-before-writing-your-own-handler).**
+> Mollie does not sign webhooks; safety depends on never trusting the request body.
 
 Mollie uses webhooks to notify your application about payment status changes. CashierMollie provides two approaches.
 
@@ -553,11 +610,36 @@ public class BillingWebhookController : ControllerBase
 }
 ```
 
-> **Security note:** Mollie does not use webhook signatures. Instead, the webhook handler always fetches the payment details directly from the Mollie API, ensuring data integrity. Consider placing the webhook endpoint behind rate-limiting middleware in production.
+> **⚠️ You have just taken ownership of the webhook trust invariant.** The handler above is safe
+> only because it passes `id` and nothing else -- `HandlePaymentAsync` re-fetches the payment from
+> Mollie. Mollie does **not** sign webhooks, so any additional form field you bind here is
+> attacker-controlled. Do not use the payload to decide payment state, however tempting it is to
+> skip the extra API call. See [Security](#security) for the failure mode in full, and rate-limit
+> this endpoint in production.
 
 ## Events
 
 CashierMollie dispatches domain events throughout the subscription and payment lifecycle via `ICashierEventDispatcher`.
+
+### Who retries a failed payment? (read before handling `OrderPaymentFailed`)
+
+Events are **notifications, not instructions** -- but do not read that as "you can ignore them".
+There is **no dunning logic in this library**: no retry cap, no backoff schedule, no automatic
+subscription suspension, no customer notification. What happens after a failure depends entirely on
+the billing engine:
+
+| Engine | What retries | What you still own |
+|--------|--------------|--------------------|
+| `MollieNative` (default) | **Mollie**, on its own subscription retry schedule. Not this library. | Deciding what happens when Mollie stops retrying -- suspend access, notify the customer, escalate. |
+| `Managed` | Nothing explicitly. The failed `OrderItem` is simply left unconsumed, so the **next billing cycle picks it up again** -- retry by omission, with **no attempt limit and no backoff**. | Capping attempts and giving up. Without that, a permanently failing item is retried forever. |
+
+**Do not assume the library will eventually give up and suspend the subscription -- it will not.**
+Dunning/retry is a documented gap on the [Roadmap](#roadmap). If revenue depends on it, implement
+it in your `ICashierEventDispatcher`.
+
+> **Known API wart:** `OrderPaymentFailedDueToInvalidMandate<TKey>` is declared and unit-tested but
+> is **never dispatched** by any code path in this version. Do not build on it. `OrderPaymentFailed`
+> is the event you will actually receive.
 
 ### Available events
 
@@ -569,8 +651,8 @@ CashierMollie dispatches domain events throughout the subscription and payment l
 | `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed |
 | `SubscriptionQuantityUpdated<TKey>` | Subscription quantity was updated |
 | `OrderPaymentPaid<TKey>` | A payment was successfully processed |
-| `OrderPaymentFailed<TKey>` | A payment attempt failed |
-| `OrderPaymentFailedDueToInvalidMandate<TKey>` | Payment failed due to invalid mandate |
+| `OrderPaymentFailed<TKey>` | A payment attempt failed -- see [who retries](#who-retries-a-failed-payment-read-before-handling-orderpaymentfailed) |
+| `OrderPaymentFailedDueToInvalidMandate<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `FirstPaymentPaid<TKey>` | First payment (mandate creation) succeeded |
 | `FirstPaymentFailed<TKey>` | First payment (mandate creation) failed |
 | `MandateUpdated<TKey>` | Owner's mandate was updated |
