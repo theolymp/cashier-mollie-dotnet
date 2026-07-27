@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+- CI fails on dependencies with known advisories (`dotnet list package --vulnerable`, direct and
+  transitive). The check reads the output rather than the exit code, which is `0` either way, and
+  it also fails when the output is unrecognised -- otherwise a scan that did not run is
+  indistinguishable from a clean one.
+
 ### Changed
 - Restores are now locked: `RestorePackagesWithLockFile` is enabled and `packages.lock.json` is
   committed for both projects. Restores resolve to recorded versions rather than to whatever is

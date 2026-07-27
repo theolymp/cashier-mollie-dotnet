@@ -39,6 +39,14 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore
 
+      # Known advisories in dependencies, direct and transitive. This can turn main red without
+      # anyone touching the code -- an advisory published today applies to yesterday's build. That
+      # is accepted deliberately: unlike the analyzer breakage this workflow saw on 2026-07-27,
+      # which came from an unpinned toolchain and was avoidable noise, a new advisory is real and
+      # actionable information about a package we publish.
+      - name: Scan dependencies for known vulnerabilities
+        run: .github/scan-vulnerable.sh
+
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
