@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Restores are now locked: `RestorePackagesWithLockFile` is enabled and `packages.lock.json` is
+  committed for both projects. Restores resolve to recorded versions rather than to whatever is
+  newest, and a dependency scan has an exact transitive list to work from instead of producing an
+  empty result against a green build. Contributors: a deliberate dependency change now also updates
+  the lock file, and `dotnet restore --locked-mode` verifies it.
+
 ## [0.4.0] - 2026-07-27
 
 Driven by the first real integration of this library into an application. Every item below is
