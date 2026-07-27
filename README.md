@@ -26,6 +26,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+  - [Type name collisions](#type-name-collisions)
 - [Configuration](#configuration)
 - [Getting Started](#getting-started)
   - [Implement IBillable](#1-implement-ibillable-on-your-user-model)
@@ -103,6 +104,29 @@ dotnet add package Mollie.Api
 ```
 
 CashierMollie wraps Mollie.Api but does not bundle it -- you register the Mollie API clients yourself, giving you full control over Mollie configuration.
+
+### Type name collisions
+
+A billing library models the same concepts your application does, so a few type names are likely to
+clash with your own. Most of ours do not, because the entity types are **generic** -- your
+non-generic `Subscription` and our `Subscription<TKey>` differ in arity and coexist happily. The
+ones that can genuinely collide are the non-generic types:
+
+| Ours | Clashes with a typical |
+|------|------------------------|
+| `SubscriptionStatus` (static class of `const string`) | `SubscriptionStatus` enum |
+| `Coupon` | `Coupon` entity |
+| `SubscriptionOptions` | `SubscriptionOptions` DTO |
+
+If both names are in scope in the same file, the compiler reports `CS0104` and you alias one:
+
+```csharp
+using CashierStatus = CashierMollie.Models.SubscriptionStatus;
+```
+
+Note that `SubscriptionStatus` holds **`string` constants**, not enum members -- `Status` is a
+`string` column. If your own `SubscriptionStatus` is an enum, assigning one to the other does not
+compile, so this particular clash surfaces immediately rather than silently.
 
 ## Configuration
 
