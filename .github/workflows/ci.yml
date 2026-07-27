@@ -11,6 +11,16 @@ on:
 # install it from that file. A floating '10.0.x' resolves to whatever is newest on the runner,
 # which combined with TreatWarningsAsErrors means a new analyzer rule can turn main red without
 # anyone touching the code -- that happened on 2026-07-27 (CA1873). One version, one place.
+# Supersede a still-running check when a newer commit arrives on the same ref, so an obsolete run
+# cannot report a verdict for a state nobody is on any more.
+#
+# cancel-in-progress is deliberately FALSE for tags: a tag run performs the NuGet publish, and
+# publishing is not resumable or reversible -- a cancellation mid-push could leave a version
+# half-released. Branch and PR runs only build and test, so interrupting them costs nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
