@@ -129,7 +129,7 @@ Add a `CashierMollie` section to your `appsettings.json`:
 > If you leave `WebhookUrl` empty it falls back to `WebhookPath` -- which is a *relative* path, and
 > **Mollie requires an absolute HTTPS URL**. That combination fails only once real payments start,
 > so set `WebhookUrl` explicitly. The library logs a warning at startup when the effective URL is
-> not absolute (added after 0.3.0 -- not present in the published 0.3.0 package).
+> not absolute (since 0.4.0).
 
 > **Important:** For production, use `live_xxx` API keys. The `WebhookUrl` must be a publicly accessible HTTPS URL. For local development, use a tunnel service like [ngrok](https://ngrok.com) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
@@ -784,7 +784,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 |--------|------|-------------|
 | `Id` | `bigint` PK | Auto-increment ID |
 | `OwnerId` | `TKey` | Foreign key to your user model |
-| `Name` | `varchar(255)` | The subscription **slot** for this owner, not a display name -- lets one owner hold several subscriptions at once, and is what `Subscribed(name)` matches. Convention: your **product** (e.g. `"modcockpit"`). Defaults to `"default"`. Matched literally, so changing it orphans the subscription. |
+| `Name` | `varchar(255)` | The subscription **slot** for this owner, not a display name -- lets one owner hold several subscriptions at once, and is what `Subscribed(name)` matches. Convention: your **product** (e.g. `"acme-app"`). Defaults to `"default"`. Matched literally, so changing it orphans the subscription. |
 | `Plan` | `varchar(255)` | The **priced plan** being charged (e.g. `"pro-monthly"`) -- what `Swap()` changes. Convention: your **tier**. |
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |

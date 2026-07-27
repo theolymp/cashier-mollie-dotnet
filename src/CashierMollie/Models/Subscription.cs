@@ -24,7 +24,7 @@ public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKe
     /// </summary>
     /// <remarks>
     /// Consumers typically map their <b>product</b> here and the <b>tier</b> to <see cref="Plan"/>
-    /// (e.g. <c>Name = "modcockpit"</c>, <c>Plan = "pro-monthly"</c>), which matches the intent:
+    /// (e.g. <c>Name = "acme-app"</c>, <c>Plan = "pro-monthly"</c>), which matches the intent:
     /// one subscription per product per owner, priced by plan. Pick a stable machine identifier --
     /// this value is matched literally, so changing it orphans the existing subscription.
     /// </remarks>

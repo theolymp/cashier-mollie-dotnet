@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>CashierMollie</PackageId>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>TheOlymp</Authors>
     <Description>Mollie subscription management for ASP.NET Core — feature parity with laravel/cashier-mollie</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

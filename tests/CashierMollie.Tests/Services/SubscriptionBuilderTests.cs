@@ -173,7 +173,7 @@ public class SubscriptionBuilderTests : IDisposable
     {
         var metadata = new Dictionary<string, string>
         {
-            { "product", "modcockpit" },
+            { "product", "acme-app" },
             { "tier", "pro" },
         };
 
@@ -206,7 +206,7 @@ public class SubscriptionBuilderTests : IDisposable
                 opts.MandateOnly &&
                 opts.Prorate &&
                 opts.Metadata != null &&
-                opts.Metadata["product"] == "modcockpit" &&
+                opts.Metadata["product"] == "acme-app" &&
                 opts.Metadata["tier"] == "pro"),
             Arg.Any<CancellationToken>());
     }

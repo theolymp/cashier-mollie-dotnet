@@ -37,3 +37,8 @@ Thumbs.db
 ## Test Results
 TestResults/
 coverage/
+
+## Internal working files -- deliberately not part of this public repository
+CLAUDE.md
+docs/
+.serena/

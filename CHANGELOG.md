@@ -4,18 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-07-27
 
-Driven by the first real integration feedback, from `streampact_identity` -- our first production
-consumer. Every item below is something the published docs got wrong or failed to convey, found
-because neither side took the other's claims on trust.
+Driven by the first real integration of this library into an application. Every item below is
+something the published documentation got wrong or failed to convey, found because the integration
+verified the docs against the source instead of taking them on trust.
 
 ### Added
 - `CashierStartupDiagnostics` -- logs the effective billing engine at startup, and warns when the
   webhook URL handed to Mollie is not an absolute `http(s)` URL. Both failure modes were previously
   silent until real payments ran. Distinguishes an *unset* `WebhookUrl` (falls back to the relative
   `WebhookPath`) from a *set but unusable* one, because the fix differs.
-- 8 tests (291 total, was 283)
+- Tests covering the new diagnostics, including a regression test for the `file://` case below.
 - `global.json` pinning the SDK, with `rollForward: latestPatch`. The CI workflow now installs from
   it (`global-json-file`) instead of carrying its own version, so the SDK is stated once.
 
@@ -40,8 +40,8 @@ because neither side took the other's claims on trust.
   the README could leave Mollie calling a path the application does not serve.
 - **Docs:** the quickstart called `AddMollieApi` without showing its `using`. It lives in
   `Mollie.Api`, not `Mollie.Api.Extensions` -- our first consumer had to decompile to find it.
-- **Docs:** retry ownership was undocumented and inferred incorrectly by a consumer as "the library
-  handles it". It does not: there is no dunning logic at all. Now documented per engine.
+- **Docs:** retry ownership was undocumented and inferred incorrectly as "the library handles it".
+  It does not: there is no dunning logic at all. Now documented per engine.
 - **Docs:** `Subscription.Name` (the subscription *slot*) vs `Plan` (the priced plan) had no stated
   semantics, so consumers invented their own.
 
