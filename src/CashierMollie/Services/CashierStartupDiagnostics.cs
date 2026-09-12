@@ -14,6 +14,12 @@ namespace CashierMollie.Services;
 /// differ in how a failed payment is retried. The webhook URL falls back to the local
 /// <see cref="CashierMollieOptions.WebhookPath"/>, which is relative; Mollie requires an absolute
 /// URL, so that combination only fails once real payments start.
+///
+/// Scope, because a clean startup log is easy to over-read: this checks
+/// <see cref="CashierMollieOptions.EffectiveWebhookUrl"/>, which is the value this library sends on
+/// every call it makes. A consumer that also calls the Mollie API directly supplies its own webhook
+/// URL on those calls, and this diagnostic cannot see it. That is a real configuration, not a
+/// hypothetical one, so the absence of a warning here says nothing about such calls.
 /// </remarks>
 public sealed partial class CashierStartupDiagnostics : IHostedService
 {
