@@ -18,9 +18,21 @@
         net9.0          (ungesetzt)      direct         direct
         net10.0         (ungesetzt)      direct         all
 
-      'all' verlangt also net10.0 UND SDK 10 — keine der beiden Groessen allein. Unter SDK 8
-      ist die Eigenschaft nicht 'direct', sondern UNGESETZT (Known-positive: TargetFramework
-      und LangVersion liefern dort Werte, das Kommando liest also).
+      'all' verlangt also net10.0 UND ein SDK 10 — keine der beiden Groessen allein.
+      Unter 8.0.129 ist die Eigenschaft nicht 'direct', sondern UNGESETZT (Known-positive:
+      TargetFramework und LangVersion liefern dort Werte, das Kommando liest also).
+
+      DIE ZELLE IST DAS BAND, NICHT DER MAJOR. Das ist gemessen und nicht hergeleitet: sb
+      misst in ihrem Image fuer 8.0.4xx 'direct' statt ungesetzt. Die Spalten oben nennen
+      deshalb exakte Versionen — alle drei sind .1xx-Baender, die .4xx-Baender liegen auf
+      dieser Maschine nicht und sind hier nicht messbar. Ob 9.0.4xx oder 10.0.4xx abweichen,
+      hat niemand gemessen; 'ein SDK 10 liefert all' ist damit fuer 10.0.100 belegt und fuer
+      10.0.4xx offen. Welches Band das 'rollForward: latestPatch' unserer global.json
+      zulaesst, ist mangels zweitem Band hier ebenfalls nicht gemessen.
+
+      Fuer die ABDECKUNG sind 'ungesetzt' und 'direct' dasselbe — beide sehen transitive
+      Pakete nicht. Fuer eine MESSUNG nicht: wer sein Image misst und eine Zelle von hier
+      danebenlegt, haelt sonst eine der beiden fuer kaputt.
 
       Die Zuordnung hat sich damit in BEIDEN letzten Releases verschoben, und der Wert, auf
       dem wir heute sitzen, ist genau ein Release alt. Ein Framework- oder SDK-Sprung kann die
