@@ -7,11 +7,24 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
 
     <!--
-      Deckt sich heute mit dem SDK-Default und steht trotzdem hier: der Default haengt am
-      TargetFramework, nicht am SDK allein. Gemessen gegen den Pin aus global.json (10.0.100):
-      net10.0 => all, net8.0 => direct, netstandard2.0 => direct. Diese Zuordnung hat sich
-      zwischen .NET 8 und 9 schon einmal verschoben — ein Framework-Sprung kann die Abdeckung
-      also lautlos umlegen, in beide Richtungen, ohne dass etwas rot wird.
+      Deckt sich heute mit dem SDK-Default und steht trotzdem hier: der Default haengt an
+      ZWEI Groessen, TargetFramework UND SDK. Lokal ueber alle drei installierten SDKs
+      gemessen (global.json je Wegwerf-Projekt, rollForward disable, aufgeloestes SDK pro
+      Zelle geprueft):
+
+                       SDK 8.0.129    SDK 9.0.119    SDK 10.0.100
+        netstandard2.0  (ungesetzt)      direct         direct
+        net8.0          (ungesetzt)      direct         direct
+        net9.0          (ungesetzt)      direct         direct
+        net10.0         (ungesetzt)      direct         all
+
+      'all' verlangt also net10.0 UND SDK 10 — keine der beiden Groessen allein. Unter SDK 8
+      ist die Eigenschaft nicht 'direct', sondern UNGESETZT (Known-positive: TargetFramework
+      und LangVersion liefern dort Werte, das Kommando liest also).
+
+      Die Zuordnung hat sich damit in BEIDEN letzten Releases verschoben, und der Wert, auf
+      dem wir heute sitzen, ist genau ein Release alt. Ein Framework- oder SDK-Sprung kann die
+      Abdeckung lautlos umlegen, in beide Richtungen, ohne dass etwas rot wird.
 
       Wirkung: 'all' prueft auch TRANSITIVE Pakete. Zusammen mit TreatWarningsAsErrors oben
       bricht ein NU190x-Advisory damit den Restore. Das ist der einzige Mechanismus, der
