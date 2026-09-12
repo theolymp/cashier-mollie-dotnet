@@ -8,7 +8,7 @@
 
     <!--
       Deckt sich heute mit dem SDK-Default und steht trotzdem hier: der Default haengt an
-      ZWEI Groessen, TargetFramework UND SDK. Lokal ueber alle drei installierten SDKs
+      DREI Groessen — TargetFramework, SDK und einem Schalter (unten). Lokal ueber alle drei installierten SDKs
       gemessen (global.json je Wegwerf-Projekt, rollForward disable, aufgeloestes SDK pro
       Zelle geprueft):
 
@@ -42,6 +42,19 @@
       bricht ein NU190x-Advisory damit den Restore. Das ist der einzige Mechanismus, der
       Schwachstellen in TEST-Abhaengigkeiten hier sichtbar macht — .github/scan-vulnerable.sh
       gatet bewusst nur das ausgelieferte Projekt.
+
+      DIE DRITTE GROESSE IST EIN SCHALTER, UND DER PIN NEUTRALISIERT IHN. Die SDK-Quelle
+      setzt den Default nur, wenn NuGetAuditMode leer ist UND
+      NuGetExeSkipSdkAnalysisLevelCheck nicht 'true' ist (Preprocess dieses Projekts,
+      Zeilen 9278/9279). Gemessen mit belegter Ankunft der Variation:
+
+                       Schalter aus    Schalter=true
+        mit Pin            all             all        <- Pin gewinnt, Schalter inert
+        ohne Pin           all            DIRECT      <- kippt still, ohne Fehler
+
+      Fuer ein Repo OHNE Pin ist die Abdeckung damit nicht erst durch ein Microsoft-Release
+      gefaehrdet, sondern durch eine einzige gesetzte Eigenschaft. Mit Pin gilt 'all'
+      unabhaengig von allen drei Groessen.
 
       Also NICHT als redundant entfernen: ohne die Zeile ist die Abdeckung eine Zusicherung
       des SDK statt eine des Repos.
