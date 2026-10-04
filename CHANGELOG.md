@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- Tests now run against a real PostgreSQL, the provider both known consumers deploy on. SQLite
+  covers relational schema creation and SQL translation, which InMemory does not; it does not cover
+  translation against the deployed engine, and the same model resolves `decimal` to `numeric` on
+  PostgreSQL, `TEXT` on SQLite and `decimal(18,2)` on SQL Server. Five tests pin the schema, that
+  the harness really reached PostgreSQL, the one decimal comparison the library performs in SQL,
+  optimistic concurrency, and that a `decimal` survives a round trip with more than two decimal
+  places -- measured, not inferred from the column type. No Testcontainers and no Docker socket:
+  the connection string comes from `CASHIERMOLLIE_TEST_POSTGRES`, CI supplies it from a service
+  container, and without it the tests skip with a stated reason so a contributor without Docker
+  still gets a green suite. CI asserts they actually ran by reading the passed count, because
+  `dotnet test` exits `0` for passed, for all-skipped and for zero matching tests alike -- the same
+  reason `scan-vulnerable.sh` reads findings instead of a status.
 - CI fails on dependencies with known advisories (`dotnet list package --vulnerable`, direct and
   transitive). The check reads the output rather than the exit code, which is `0` either way, and
   it also fails when the output is unrecognised -- otherwise a scan that did not run is
