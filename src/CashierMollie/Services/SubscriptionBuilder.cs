@@ -23,7 +23,6 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
     private string? _coupon;
     private int _trialDays;
     private bool _mandateOnly;
-    private bool _prorate;
     private Dictionary<string, string>? _metadata;
 
     /// <summary>
@@ -73,7 +72,8 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
     }
 
     /// <inheritdoc />
-    public ISubscriptionBuilder<TKey> WithProration() { _prorate = true; return this; }
+    public ISubscriptionBuilder<TKey> WithProration() =>
+        throw new NotSupportedException(ProrationSupport.NotImplementedMessage);
 
     /// <inheritdoc />
     public ISubscriptionBuilder<TKey> WithMandateOnly() { _mandateOnly = true; return this; }
@@ -89,7 +89,8 @@ public class SubscriptionBuilder<TKey> : ISubscriptionBuilder<TKey> where TKey :
             TrialDays = _trialDays,
             CouponCode = _coupon,
             MandateOnly = _mandateOnly,
-            Prorate = _prorate,
+            // Prorate is deliberately left at its default: WithProration() throws, so it can
+            // never have been requested through this builder. See ProrationSupport.
             Metadata = _metadata,
         };
         return _engine.CreateSubscriptionAsync(_owner, _name, _plan, options, ct);

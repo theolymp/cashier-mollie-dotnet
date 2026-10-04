@@ -13,6 +13,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   indistinguishable from a clean one.
 
 ### Changed
+- **Breaking: `WithProration()` and a swap with `SwapOptions { Prorate = true }` now throw
+  `NotSupportedException` instead of being accepted and silently ignored.** Measured 2026-10-04:
+  `Prorate` had five write sites and **zero** read sites -- neither billing engine ever looked at
+  it -- while the XML doc on `SwapOptions.Prorate` stated it "calculates proration credit for
+  unused time on the current plan". A caller therefore received no credit and no error, which is
+  the one state indistinguishable from a working implementation. Proration itself is still not
+  implemented; this change only stops the library from claiming otherwise.
+  **Not covered:** `IBillingEngine` is public and DI-registered, so a consumer who injects it and
+  calls `CreateSubscriptionAsync`/`SwapPlanAsync` directly with `Prorate = true` still gets
+  silence. The two guards sit at the documented consumer entry points (the fluent builder and
+  `ICashierService.SwapAsync`), not inside the engines.
+  **Before proration is built,** the 13 `decimal` columns need an explicit precision: without
+  `HasPrecision` they resolve per provider -- `numeric` on PostgreSQL (exact), `TEXT` on SQLite,
+  `decimal(18,2)` on SQL Server. Proration produces fractional cents, so the same code would
+  otherwise yield different money on different providers.
 - Restores are now locked: `RestorePackagesWithLockFile` is enabled and `packages.lock.json` is
   committed for both projects. Restores resolve to recorded versions rather than to whatever is
   newest, and a dependency scan has an exact transitive list to work from instead of producing an

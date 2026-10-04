@@ -112,13 +112,13 @@ public class SubscriptionBuilderTests : IDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => builder.TrialDays(-1));
     }
 
-    [Fact]
-    public void WithProration_ReturnsSameBuilder()
-    {
-        var builder = CreateBuilder();
-        var result = builder.WithProration();
-        Assert.Same(builder, result);
-    }
+    // WithProration_ReturnsSameBuilder stood here and asserted that the call returns the builder
+    // for chaining. It was correct until 2026-10-04, when WithProration() was measured to set a
+    // flag that neither billing engine ever read -- so the chainable call accepted a money request
+    // and honoured nothing. The method now throws, and the behaviour is pinned in
+    // ProrationNotSupportedTests. Nothing is asserted here twice; this note exists because the
+    // absence of a WithProration test in this file is otherwise the kind of gap someone fills by
+    // re-adding the old assertion.
 
     [Fact]
     public void WithMandateOnly_ReturnsSameBuilder()
@@ -190,7 +190,10 @@ public class SubscriptionBuilderTests : IDisposable
             .WithCoupon("LAUNCH10")
             .TrialDays(30)
             .WithMandateOnly()
-            .WithProration()
+            // .WithProration() was part of this chain and the assertion below required
+            // opts.Prorate to be true. Both were correct about the plumbing and wrong about the
+            // product: nothing read the flag. The assertion is now inverted -- the builder must
+            // NOT request proration -- which is a stronger statement than omitting it.
             .WithMetadata(metadata)
             .CreateAsync();
 
@@ -204,7 +207,7 @@ public class SubscriptionBuilderTests : IDisposable
                 opts.TrialDays == 30 &&
                 opts.CouponCode == "LAUNCH10" &&
                 opts.MandateOnly &&
-                opts.Prorate &&
+                !opts.Prorate &&
                 opts.Metadata != null &&
                 opts.Metadata["product"] == "acme-app" &&
                 opts.Metadata["tier"] == "pro"),
@@ -246,11 +249,12 @@ public class SubscriptionBuilderTests : IDisposable
         var builder = CreateBuilder();
         var metadata = new Dictionary<string, string> { { "env", "test" } };
 
-        // All fluent methods should be chainable in sequence without throwing
+        // All fluent methods should be chainable in sequence without throwing.
+        // WithProration() is deliberately absent: it is the one fluent method that now throws,
+        // and including it would make this test assert the opposite of what it is named for.
         var result = builder
             .WithCoupon("SAVE20")
             .TrialDays(7)
-            .WithProration()
             .WithMandateOnly()
             .WithMetadata(metadata);
 
