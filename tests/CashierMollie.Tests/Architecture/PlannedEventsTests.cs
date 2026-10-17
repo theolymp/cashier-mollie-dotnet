@@ -116,6 +116,100 @@ public class PlannedEventsTests
         }
     }
 
+    [Fact]
+    public void EveryDeclaredEvent_HasOneReadmeRow_MarkedIffPlanned()
+    {
+        // The README is the document consumers actually read, and it is the surface my own first
+        // pass missed: the XML summaries were corrected while the README table still described six
+        // of the seven as if they fire. Worse, it already carried the warning on ONE of them, which
+        // reads as exhaustive and certifies the rest. Pinning both directions ties the table to the
+        // measured set so neither can drift alone.
+        string readme = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName, "README.md"));
+        Assert.NotEmpty(readme);
+
+        List<string> declared = DeclaredEventNames();
+        Assert.NotEmpty(declared);
+
+        // Known-negative: an invented event must have no row, or "has a row" means nothing.
+        Assert.Empty(TableRowsFor("QqzzzNichtVorhanden1017", readme));
+
+        bool sawLiveRow = false;
+        foreach (string name in declared)
+        {
+            List<string> rows = TableRowsFor(name, readme);
+            Assert.True(
+                rows.Count == 1,
+                $"{name} has {rows.Count} README table rows, expected exactly one — a declared event "
+                    + "with no row is undocumented, and two rows drift apart.");
+
+            bool marked = rows[0].Contains(ReadmeNotDispatchedMarker, StringComparison.Ordinal);
+            if (PlannedEvents.Contains(name))
+            {
+                Assert.True(marked, $"{name} is planned but its README row describes it as if it fires.");
+            }
+            else
+            {
+                Assert.False(marked, $"{name} is dispatched but its README row says it never is.");
+                sawLiveRow = true;
+            }
+        }
+
+        // Known-positive: at least one live event was actually checked against the unmarked branch.
+        Assert.True(sawLiveRow, "No live event was examined, so the unmarked branch proved nothing.");
+    }
+
+    [Fact]
+    public void InvoiceHook_IsNotInvoked_AndSaysSo()
+    {
+        // Lives here rather than in its own file because OrderInvoiceAvailable and
+        // IInvoiceGenerator are the two ends of ONE unbuilt path: the event that would announce an
+        // invoice is never dispatched, and the callback that would produce one is never called.
+        // NullInvoiceGenerator used to instruct consumers to "replace in DI to enable invoice
+        // generation" — an instruction someone can follow with a real sevdesk or PDF integration
+        // and no way to tell it never runs.
+        Dictionary<string, string> sources = ReadProductionSources();
+
+        // Known-positive: a callback this library DOES make must be found, or the scan is blind.
+        Assert.NotEmpty(FilesMentioning("DispatchAsync", sources));
+
+        List<string> callers = FilesMentioning("GenerateAsync", sources)
+            .Where(f => !f.Contains("IInvoiceGenerator", StringComparison.Ordinal)
+                        && !f.Contains("NullInvoiceGenerator", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(
+            callers.Count == 0,
+            $"IInvoiceGenerator.GenerateAsync is now called from {string.Join(", ", callers)}. "
+                + "Remove the NOT INVOKED wording from both doc comments, drop the README caveat, "
+                + "and delete this test — the seam is real now.");
+
+        XElement doc = LoadShippedXmlDocumentation();
+        foreach (string member in new[]
+                 {
+                     "T:CashierMollie.Interfaces.IInvoiceGenerator`1",
+                     "T:CashierMollie.Services.NullInvoiceGenerator`1",
+                 })
+        {
+            XElement? element = doc.Descendants("member")
+                .FirstOrDefault(m => (string?)m.Attribute("name") == member);
+            Assert.True(element is not null, $"{member} missing from the shipped XML documentation");
+            Assert.Contains("NOT INVOKED BY THIS LIBRARY", element!.Value, StringComparison.Ordinal);
+        }
+    }
+
+    private const string ReadmeNotDispatchedMarker = "Never dispatched in this version";
+
+    private static List<string> DeclaredEventNames() =>
+        LibraryAssembly.GetExportedTypes()
+            .Where(t => t.Namespace == "CashierMollie.Events")
+            .Select(t => t.Name.Split('`')[0])
+            .Distinct()
+            .ToList();
+
+    private static List<string> TableRowsFor(string eventName, string readme) =>
+        readme.Split('\n')
+            .Where(l => l.StartsWith('|') && l.Contains($"`{eventName}<TKey>`", StringComparison.Ordinal))
+            .ToList();
+
     private static List<string> FilesMentioning(string name, Dictionary<string, string> sources)
     {
         // Word boundaries matter: "OrderPaymentFailed" is a prefix of

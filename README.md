@@ -82,7 +82,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **Payment method update** -- initiate payment method changes via first payment flow
 - **Mandate management** -- check mandate validity and revoke mandates
 - **Chargeback detection** -- automatic tracking and events for chargebacks
-- **Invoice interface** -- pluggable `IInvoiceGenerator<TKey>` for custom invoice generation (sevdesk, PDF, etc.)
+- **Invoice interface** -- `IInvoiceGenerator<TKey>` is declared and registered, but **nothing in this library calls it**; implementing it currently has no effect
 - **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
 - **Event system** -- 23 domain events via pluggable `ICashierEventDispatcher`
 - **EF Core integration** -- 7 entities across 7 tables with a single `ModelBuilder` extension
@@ -701,19 +701,19 @@ it in your `ICashierEventDispatcher`.
 | `OrderPaymentFailedDueToInvalidMandate<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `FirstPaymentPaid<TKey>` | First payment (mandate creation) succeeded |
 | `FirstPaymentFailed<TKey>` | First payment (mandate creation) failed |
-| `MandateUpdated<TKey>` | Owner's mandate was updated |
+| `MandateUpdated<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `MandateCleared<TKey>` | Owner's mandate was removed |
 | `CouponApplied<TKey>` | A coupon was redeemed on a subscription |
 | `CreditAdded<TKey>` | Credit was added to owner's balance |
 | `CreditApplied<TKey>` | Credit was consumed from owner's balance |
 | `RefundInitiated<TKey>` | A refund was initiated |
-| `RefundProcessed<TKey>` | A refund was processed successfully |
-| `RefundFailed<TKey>` | A refund attempt failed |
+| `RefundProcessed<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
+| `RefundFailed<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `ChargebackReceived<TKey>` | A chargeback was received |
 | `OrderCreated<TKey>` | A new order was created |
-| `OrderProcessed<TKey>` | An order was fully processed |
-| `OrderInvoiceAvailable<TKey>` | An invoice is available for an order |
-| `BalanceTurnedStale<TKey>` | Owner's credit balance became stale |
+| `OrderProcessed<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
+| `OrderInvoiceAvailable<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
+| `BalanceTurnedStale<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 
 ### Handling events
 
@@ -1006,7 +1006,7 @@ CashierMollie v0.3.0 covers the full subscription lifecycle, dual billing engine
 - [x] **Payment method update** -- flow for customers to change their payment method
 - [x] **Mandate management** -- check validity and revoke mandates
 - [x] **Chargeback handling** -- tracking and events for chargebacks
-- [x] **Invoice interface** -- pluggable IInvoiceGenerator for custom invoice generation
+- [ ] **Invoice interface** -- `IInvoiceGenerator<TKey>` exists as a seam, but no code path invokes it, so an implementation never runs
 - [x] **Order model** -- full order pipeline with order items
 - [ ] **Proration** -- credit calculation for mid-cycle plan changes
 - [ ] **Invoice generation** -- built-in HTML/PDF invoice renderer
