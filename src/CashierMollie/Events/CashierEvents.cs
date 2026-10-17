@@ -36,8 +36,10 @@ public record SubscriptionQuantityUpdated<TKey>(Subscription<TKey> Subscription,
 
 // ── Payment events ──────────────────────────────────────────────────
 
-/// <summary>Dispatched when a payment fails due to an invalid or revoked mandate.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: a payment fails due to an invalid or revoked mandate.
+/// </summary>
 public record OrderPaymentFailedDueToInvalidMandate<TKey>(Payment<TKey> Payment, Subscription<TKey>? Subscription, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
@@ -51,8 +53,10 @@ public record FirstPaymentFailed<TKey>(Payment<TKey> Payment, TKey OwnerId)
 
 // ── Mandate events ──────────────────────────────────────────────────
 
-/// <summary>Dispatched when a billable entity's mandate is updated to a new one.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: a billable entity's mandate is updated to a new one.
+/// </summary>
 public record MandateUpdated<TKey>(string? OldMandateId, string NewMandateId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
@@ -76,8 +80,10 @@ public record CreditAdded<TKey>(decimal Amount, string Currency, string? Descrip
 public record CreditApplied<TKey>(decimal Amount, string Currency, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when a billable entity's balance becomes stale (e.g. unused for too long).</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: a billable entity's balance becomes stale (e.g. unused for too long).
+/// </summary>
 public record BalanceTurnedStale<TKey>(decimal Balance, string Currency, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
@@ -87,13 +93,17 @@ public record BalanceTurnedStale<TKey>(decimal Balance, string Currency, TKey Ow
 public record RefundInitiated<TKey>(Payment<TKey> Payment, decimal Amount, string Currency, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when a refund has been successfully processed.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: a refund has been successfully processed.
+/// </summary>
 public record RefundProcessed<TKey>(Payment<TKey> Payment, decimal Amount, string Currency, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when a refund attempt has failed.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: a refund attempt has failed.
+/// </summary>
 public record RefundFailed<TKey>(Payment<TKey> Payment, decimal Amount, string Currency, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
@@ -109,12 +119,16 @@ public record ChargebackReceived<TKey>(Payment<TKey> Payment, decimal Amount, st
 public record OrderCreated<TKey>(long OrderId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when an order has been fully processed.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: an order has been fully processed.
+/// </summary>
 public record OrderProcessed<TKey>(long OrderId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when an invoice becomes available for an order.</summary>
-// Planned — not yet dispatched by any service
+/// <summary>
+/// RESERVED — no service dispatches this event; registering a handler has no effect.
+/// Intended meaning: an invoice becomes available for an order.
+/// </summary>
 public record OrderInvoiceAvailable<TKey>(long OrderId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
