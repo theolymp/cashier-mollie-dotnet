@@ -9,10 +9,18 @@ public class CashierMollieOptions
     /// <summary>The configuration section name in appsettings.json.</summary>
     public const string SectionName = "CashierMollie";
 
-    /// <summary>Mollie API key (live_xxx or test_xxx).</summary>
+    /// <summary>
+    /// NOT HONOURED — nothing reads this setting. The Mollie client is authenticated by the
+    /// consumer's own AddMollieApi() call, so a key placed here is inert: rotating it changes
+    /// nothing, and a second copy of the secret in configuration is a hazard, not a setting.
+    /// Intended meaning: the Mollie API key (live_xxx or test_xxx).
+    /// </summary>
     public string ApiKey { get; set; } = string.Empty;
 
-    /// <summary>Locale for Mollie checkout pages (e.g. "de_DE", "en_US", "nl_NL").</summary>
+    /// <summary>
+/// NOT HONOURED — nothing reads this setting; the value has no effect.
+/// Intended meaning: locale for Mollie checkout pages (e.g. "de_DE", "en_US", "nl_NL").
+/// </summary>
     public string Locale { get; set; } = "de_DE";
 
     /// <summary>Default currency in ISO 4217 format (e.g. "EUR", "USD", "GBP").</summary>
@@ -39,7 +47,10 @@ public class CashierMollieOptions
     /// <summary>Interval between managed billing engine processing runs. Only used with <see cref="BillingEngineType.Managed"/>.</summary>
     public TimeSpan ProcessingInterval { get; set; } = TimeSpan.FromHours(1);
 
-    /// <summary>Format string for order numbers. {0} is the auto-increment order ID.</summary>
+    /// <summary>
+/// NOT HONOURED — nothing reads this setting; no code builds an order number at all.
+/// Intended meaning: format string for order numbers, {0} being the auto-increment order ID.
+/// </summary>
     public string OrderNumberFormat { get; set; } = "ORD-{0:D6}";
 
     /// <summary>Amount charged for payment method update verification (zero-value mandate check). Default: 0.01 EUR.</summary>

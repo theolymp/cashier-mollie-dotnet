@@ -22,8 +22,10 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<CashierMollieOptions>(
             configuration.GetSection(CashierMollieOptions.SectionName));
-        // Note: ApiKey is not validated here because consumers may set it after registration
-        // (e.g. from a secret store). MollieClientService validates at runtime.
+        // ApiKey is bound into the options object and then read by nothing: the Mollie client is
+        // authenticated by the consumer's own AddMollieApi() call above. Nothing validates it
+        // here or at runtime — an earlier comment claimed MollieClientService did, and that file
+        // contains no reference to it at all. Measured, so the claim does not come back.
 
         if (dbContextOptions != null)
             services.AddDbContext<CashierDbContext<TKey>>(dbContextOptions);
