@@ -121,6 +121,87 @@ public class OptionsSurfaceTests
         }
     }
 
+    [Fact]
+    public void EverySettableOption_HasOneReadmeRow_MarkedIffUnread()
+    {
+        // The XML summaries were corrected twice while the README options table kept the original
+        // wording both times -- three laggings in one session counting the event table. A reflex
+        // does not survive that; a test does.
+        string readme = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName, "README.md"));
+        Assert.NotEmpty(readme);
+
+        List<string> settable = SettableOptionNames();
+        Assert.NotEmpty(settable);
+
+        // Scope to the options table. Searching the whole README matched six rows for Currency,
+        // which is both an option key and a column in five schema tables — the first run of this
+        // test found that, not a defect in the docs.
+        List<string> table = OptionsTableRows(readme);
+
+        // Guards that the scoping worked: the block must contain a known key and must NOT contain a
+        // column that exists only in the schema tables. Either alone would pass over an empty or an
+        // over-broad block.
+        Assert.Contains(table, l => l.Contains("| `ApiKey` |", StringComparison.Ordinal));
+        Assert.DoesNotContain(table, l => l.Contains("| `MolliePaymentStatus` |", StringComparison.Ordinal));
+
+        // Known-negative: an invented key must have no row.
+        Assert.Empty(ReadmeRowsFor("QqzzzNichtVorhanden1017", table));
+
+        bool sawReadRow = false;
+        foreach (string name in settable)
+        {
+            List<string> rows = ReadmeRowsFor(name, table);
+
+            // Not every option type is tabulated (SwapOptions/SubscriptionOptions are documented in
+            // prose), so absence is allowed here -- a wrong description is not.
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            Assert.True(rows.Count == 1, $"{name} has {rows.Count} README rows, expected one.");
+            bool marked = rows[0].Contains(ReadmeNotReadMarker, StringComparison.Ordinal);
+            if (UnreadOptions.Contains(name))
+            {
+                Assert.True(marked, $"{name} is not read by this library but its README row describes an effect.");
+            }
+            else
+            {
+                Assert.False(marked, $"{name} IS read but its README row says it is not.");
+                sawReadRow = true;
+            }
+        }
+
+        // Known-positive: the unmarked branch actually ran against a live option.
+        Assert.True(sawReadRow, "No read option was examined, so the unmarked branch proved nothing.");
+    }
+
+    private const string ReadmeNotReadMarker = "Not read by this library";
+
+    private static List<string> ReadmeRowsFor(string key, List<string> optionsTable) =>
+        optionsTable.Where(l => l.Contains($"| `{key}` |", StringComparison.Ordinal)).ToList();
+
+    /// <summary>
+    /// The contiguous block of rows under the options table's header. Anchored on the header text
+    /// rather than a line number, so the table can move.
+    /// </summary>
+    private static List<string> OptionsTableRows(string readme)
+    {
+        string[] lines = readme.Split('\n');
+        int header = Array.FindIndex(
+            lines, l => l.StartsWith("| Key | Type | Default | Description |", StringComparison.Ordinal));
+        Assert.True(header >= 0, "Options table header not found in README.md");
+
+        List<string> rows = [];
+        for (int i = header + 2; i < lines.Length && lines[i].StartsWith('|'); i++)
+        {
+            rows.Add(lines[i]);
+        }
+
+        Assert.NotEmpty(rows);
+        return rows;
+    }
+
     private static List<string> SettableOptionNames() =>
         OptionTypes
             .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance))

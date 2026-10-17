@@ -864,7 +864,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `Number` | `varchar(255)` | Order number |
 | `MolliePaymentId` | `varchar(255)?` | Mollie payment ID |
-| `Status` | `varchar(50)` | Order status |
+| `MolliePaymentStatus` | `varchar(50)?` | Status of the associated Mollie payment (`paid`, `open`, `failed`) |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
 | `Total` | `decimal` | Order total |
 
@@ -978,16 +978,16 @@ All settings are bound from the `CashierMollie` section in your configuration:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ApiKey` | `string` | `""` | Your Mollie API key (`test_xxx` for testing, `live_xxx` for production) |
+| `ApiKey` | `string` | `""` | ⚠️ **Not read by this library.** Your own `AddMollieApi()` call authenticates the Mollie client. Consumers may still bind this section and read the key themselves -- at least one uses it to decide whether to wire billing at all -- so do **not** remove it from your configuration on the strength of this row. |
 | `Currency` | `string` | `"EUR"` | Default currency for payments ([ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)) |
-| `Locale` | `string` | `"de_DE"` | Locale for Mollie checkout pages (e.g. `"en_US"`, `"nl_NL"`, `"de_DE"`) |
+| `Locale` | `string` | `"de_DE"` | ⚠️ **Not read by this library.** No request it sends carries a locale, so a value here has no effect. Intended meaning: locale for Mollie checkout pages. |
 | `WebhookPath` | `string` | `"/cashier/webhook"` | **Local path the middleware matches.** Must correspond to the path component of `WebhookUrl`. |
 | `WebhookUrl` | `string` | `""` (falls back to `WebhookPath`) | **Absolute URL sent to Mollie** for payment callbacks, e.g. `"https://yourdomain.com/cashier/webhook"`. Mollie requires an absolute HTTPS URL -- leaving this empty sends the relative `WebhookPath` instead, which fails once real payments start. |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
 | `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
-| `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | Format string for generated order numbers |
+| `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | ⚠️ **Not read by this library.** Nothing builds an order number and `Number` is never populated. Slated for removal in the next major. |
 | `PaymentMethodUpdateAmount` | `decimal` | `0.01` | Amount for payment method update verification |
 | `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 
@@ -1007,7 +1007,7 @@ CashierMollie v0.3.0 covers the full subscription lifecycle, dual billing engine
 - [x] **Mandate management** -- check validity and revoke mandates
 - [x] **Chargeback handling** -- tracking and events for chargebacks
 - [ ] **Invoice interface** -- `IInvoiceGenerator<TKey>` exists as a seam, but no code path invokes it, so an implementation never runs
-- [x] **Order model** -- full order pipeline with order items
+- [x] **Order model** -- orders and order items, with the caveat that an order *header* is only created by one-off charges; the Managed engine schedules order items with `OrderId` left null, and nothing sets `Number`, sets `ProcessedAt` or raises the order-processed event
 - [ ] **Proration** -- credit calculation for mid-cycle plan changes
 - [ ] **Invoice generation** -- built-in HTML/PDF invoice renderer
 - [ ] **Plan pricing resolution** -- automatic price lookup for managed billing engine
