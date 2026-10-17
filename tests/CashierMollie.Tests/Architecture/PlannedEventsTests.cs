@@ -13,10 +13,16 @@ namespace CashierMollie.Tests.Architecture;
 /// what a consumer reads in IntelliSense. A summary saying "Dispatched when X" on an event nothing
 /// dispatches is a promise the library does not keep, and the consumer's handler simply never runs.
 ///
-/// This is the only test in the repo that reads the repository rather than constructed input, which
-/// makes it the kind that rots silently: if the path lookup or the scan breaks, every "0 occurrences"
-/// turns into a believable pass. Hence the known-positive and known-negative below run in the same
-/// pass — a broken scan then fails loudly instead of granting an all-clear.
+/// This test reads the REPOSITORY rather than constructed input, which makes it the kind that rots
+/// silently: if the path lookup or the scan breaks, every "0 occurrences" turns into a believable
+/// pass. Hence the known-positive and known-negative below run in the same pass — a broken scan then
+/// fails loudly instead of granting an all-clear.
+/// <para>
+/// This comment said "the only test in the repo that reads the repository" until OptionsSurfaceTests
+/// was added hours later and made it false. It is worth leaving the correction visible: a count is
+/// an enumeration of a set's members, and it goes stale the moment the set grows, without announcing
+/// it — the same defect this class exists to catch, committed by its own author in one afternoon.
+/// </para>
 /// </summary>
 public class PlannedEventsTests
 {
