@@ -46,6 +46,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   empty result against a green build. Contributors: a deliberate dependency change now also updates
   the lock file, and `dotnet restore --locked-mode` verifies it.
 
+### Deprecated
+- `CashierMollieOptions.OrderNumberFormat` is slated for removal in the next major version. It was
+  never read: no code in this library builds an order number at all, so a value here has never done
+  anything. The removal waits for a major because the property is published API, and until then its
+  documentation says so rather than describing an effect. Recorded here rather than in a comment
+  because a major version bump is decided while reading this file -- a "remove it later" note
+  elsewhere is a condition with nothing to make anyone read it.
+
 ## [0.4.0] - 2026-07-27
 
 Driven by the first real integration of this library into an application. Every item below is

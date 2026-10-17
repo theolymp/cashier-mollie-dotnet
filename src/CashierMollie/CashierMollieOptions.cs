@@ -25,6 +25,13 @@ public class CashierMollieOptions
     /// nothing in its behaviour. A consumer binding this section could still read it itself.
     /// Intended meaning: locale for Mollie checkout pages (e.g. "de_DE", "en_US", "nl_NL").
     /// </summary>
+    // Maintainers: if this is ever wired through to Mollie, change this default to string.Empty
+    // in the SAME commit and send nothing when it is empty. Today the field is never sent, so
+    // Mollie picks the locale itself; wiring it while this default stands would force German
+    // checkout pages on every consumer who never configured anything. The default is the fallback
+    // for the uninformed caller, not the desired state -- wiring without that change IS the
+    // regression. Not in the XML summary above on purpose: this is addressed to whoever edits the
+    // property, not to the consumers who read the shipped documentation.
     public string Locale { get; set; } = "de_DE";
 
     /// <summary>Default currency in ISO 4217 format (e.g. "EUR", "USD", "GBP").</summary>
