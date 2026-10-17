@@ -7,7 +7,7 @@ using CashierMollie.Models;
 namespace CashierMollie.Tests.Architecture;
 
 /// <summary>
-/// A consumer-settable option that no code reads is a silent no-op: the value is accepted, the
+/// A settable option THIS LIBRARY never reads may still be a silent no-op: the value is accepted, the
 /// documentation describes an effect, and nothing happens. This class has now bitten three times —
 /// SwapOptions.Prorate (made to throw in eb8cd7f), seven never-dispatched events, and the two
 /// settings below — so it is worth a detector rather than another round of noticing.
@@ -34,7 +34,11 @@ public class OptionsSurfaceTests
     private static readonly string[] UnreadOptions =
         ["ApiKey", "Locale", "OrderNumberFormat"];
 
-    private const string NotHonouredMarker = "NOT HONOURED — nothing reads this setting";
+    // Deliberately scoped to this library. An earlier marker read "nothing reads this setting" —
+    // a claim about the world drawn from a measurement of one repository. A consumer binds this
+    // section and may read the key itself: identity uses ApiKey as its billing on/off switch, fed
+    // from a secret store. Calling it inert would have invited deleting a live switch.
+    private const string NotHonouredMarker = "NOT READ BY THIS LIBRARY";
 
     private static readonly Type[] OptionTypes =
         [typeof(CashierMollieOptions), typeof(SwapOptions), typeof(SubscriptionOptions)];

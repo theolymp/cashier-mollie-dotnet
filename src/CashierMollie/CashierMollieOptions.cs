@@ -10,17 +10,21 @@ public class CashierMollieOptions
     public const string SectionName = "CashierMollie";
 
     /// <summary>
-    /// NOT HONOURED — nothing reads this setting. The Mollie client is authenticated by the
-    /// consumer's own AddMollieApi() call, so a key placed here is inert: rotating it changes
-    /// nothing, and a second copy of the secret in configuration is a hazard, not a setting.
+    /// NOT READ BY THIS LIBRARY — the Mollie client is authenticated by your own AddMollieApi()
+    /// call, not from here. A declared configuration slot rather than a dead one: consumers bind
+    /// this section and read the key themselves, and at least one uses it as the switch deciding
+    /// whether billing is wired at all, fed from a secret store in deployed environments. Do not
+    /// remove it from your configuration on the strength of this line — check your own wiring
+    /// first; rotating it may be the only rotation there is.
     /// Intended meaning: the Mollie API key (live_xxx or test_xxx).
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>
-/// NOT HONOURED — nothing reads this setting; the value has no effect.
-/// Intended meaning: locale for Mollie checkout pages (e.g. "de_DE", "en_US", "nl_NL").
-/// </summary>
+    /// NOT READ BY THIS LIBRARY — no request it sends carries a locale, so a value here changes
+    /// nothing in its behaviour. A consumer binding this section could still read it itself.
+    /// Intended meaning: locale for Mollie checkout pages (e.g. "de_DE", "en_US", "nl_NL").
+    /// </summary>
     public string Locale { get; set; } = "de_DE";
 
     /// <summary>Default currency in ISO 4217 format (e.g. "EUR", "USD", "GBP").</summary>
@@ -48,9 +52,10 @@ public class CashierMollieOptions
     public TimeSpan ProcessingInterval { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
-/// NOT HONOURED — nothing reads this setting; no code builds an order number at all.
-/// Intended meaning: format string for order numbers, {0} being the auto-increment order ID.
-/// </summary>
+    /// NOT READ BY THIS LIBRARY — it builds no order number at all, so a value here changes
+    /// nothing in its behaviour. A consumer binding this section could still read it itself.
+    /// Intended meaning: format string for order numbers, {0} being the auto-increment order ID.
+    /// </summary>
     public string OrderNumberFormat { get; set; } = "ORD-{0:D6}";
 
     /// <summary>Amount charged for payment method update verification (zero-value mandate check). Default: 0.01 EUR.</summary>

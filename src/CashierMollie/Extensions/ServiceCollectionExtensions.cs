@@ -22,10 +22,12 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<CashierMollieOptions>(
             configuration.GetSection(CashierMollieOptions.SectionName));
-        // ApiKey is bound into the options object and then read by nothing: the Mollie client is
-        // authenticated by the consumer's own AddMollieApi() call above. Nothing validates it
-        // here or at runtime — an earlier comment claimed MollieClientService did, and that file
-        // contains no reference to it at all. Measured, so the claim does not come back.
+        // ApiKey is bound into the options object and read by nothing IN THIS LIBRARY: the Mollie
+        // client is authenticated by the consumer's own AddMollieApi() call. That is not the same
+        // as inert — consumers bind this section and read the key themselves, and at least one
+        // uses it to decide whether to call AddCashierMollie at all. Nothing validates it here or
+        // at runtime: an earlier comment claimed MollieClientService did, and that file contains
+        // no reference to it. Both measured, so neither claim comes back.
 
         if (dbContextOptions != null)
             services.AddDbContext<CashierDbContext<TKey>>(dbContextOptions);
