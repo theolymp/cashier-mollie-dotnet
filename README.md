@@ -354,6 +354,14 @@ After resuming, the subscription is active again and `OnGracePeriodAsync()` retu
 
 ### Swapping plans
 
+> ⚠️ **A swap changes the plan label, not the amount charged.** There is no plan-to-price
+> resolution in this library, so neither engine sends a new amount: `MollieNative` renames locally
+> and sends an empty update to Mollie, which keeps charging the old amount indefinitely; `Managed`
+> advances the label at the next cycle and copies the previous item's `UnitPrice`. Set the new
+> price yourself after swapping, or the customer keeps paying the old one. Proration throws
+> outright -- see [Proration](#proration).
+
+
 ```csharp
 // Swap to a different plan
 var updated = await _cashier.SwapAsync(user, "default", "team-monthly");
@@ -809,7 +817,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `Id` | `bigint` PK | Auto-increment ID |
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `Name` | `varchar(255)` | The subscription **slot** for this owner, not a display name -- lets one owner hold several subscriptions at once, and is what `Subscribed(name)` matches. Convention: your **product** (e.g. `"acme-app"`). Defaults to `"default"`. Matched literally, so changing it orphans the subscription. |
-| `Plan` | `varchar(255)` | The **priced plan** being charged (e.g. `"pro-monthly"`) -- what `Swap()` changes. Convention: your **tier**. |
+| `Plan` | `varchar(255)` | The plan **label** (e.g. `"pro-monthly"`) -- what `Swap()` changes. ⚠️ **It does not change what is charged**: nothing resolves a price from a plan, so a swap renames and keeps collecting the old amount. Convention: your **tier**. |
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
 | `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |

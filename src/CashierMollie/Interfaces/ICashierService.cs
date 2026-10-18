@@ -41,7 +41,12 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// </summary>
     /// <param name="owner">The billable entity.</param>
     /// <param name="name">The subscription name.</param>
-    /// <param name="newPlan">The new plan identifier.</param>
+    /// <param name="newPlan">
+    /// The new plan identifier. NOTE: this changes the plan LABEL, not the amount charged —
+    /// nothing in this library resolves a price from a plan. MollieNative sends an empty update
+    /// to Mollie and the old amount keeps being collected; Managed advances the label at the next
+    /// cycle and carries the previous item's UnitPrice forward. Set the new price yourself.
+    /// </param>
     /// <param name="options">Optional swap configuration (e.g. proration).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The updated subscription.</returns>

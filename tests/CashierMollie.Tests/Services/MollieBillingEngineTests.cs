@@ -299,7 +299,13 @@ public class MollieBillingEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task SwapPlanAsync_UpdatesMollie_WhenSubscriptionIdExists()
+    // Renamed from SwapPlanAsync_UpdatesMollie_WhenSubscriptionIdExists. That name claimed the
+    // swap updates the Mollie subscription; what it actually certified was an update carrying NO
+    // amount, currency or description — an empty round-trip. A green test under an intentional
+    // name makes a defect read as a decision, so the name now says what happens and the
+    // assertion pins the nulls explicitly. Whoever adds plan-to-price resolution will see this
+    // fail, which is the point.
+    public async Task SwapPlanAsync_SendsEmptyUpdate_SoMollieKeepsChargingTheOldAmount()
     {
         var sub = new Subscription<string>
         {
@@ -312,8 +318,9 @@ public class MollieBillingEngineTests : IDisposable
 
         await _engine.SwapPlanAsync(sub, "team");
 
+        // Explicitly null: no amount, no currency, no description reach Mollie.
         await _mollieClient.Received(1).UpdateSubscriptionAsync(
-            "cst_test", "sub_test", ct: Arg.Any<CancellationToken>());
+            "cst_test", "sub_test", null, null, null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
