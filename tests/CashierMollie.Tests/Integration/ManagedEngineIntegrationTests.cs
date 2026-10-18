@@ -202,5 +202,67 @@ public class ManagedEngineIntegrationTests : IDisposable
         Assert.Null(sub.NextPlan);
     }
 
+    [Fact]
+    public async Task UpdateQuantity_DoesNotReachTheCharge_NextItemCarriesTheOldQuantity()
+    {
+        // The Managed engine charges UnitPrice * Quantity of the ORDER ITEM. Subscription.Quantity
+        // is read only to compute increments and to report the previous value in the event, and the
+        // next item copies the previous item's quantity — so a seat change never reaches a charge.
+        // The engine has the subscription in hand where it builds that item, so this is a gap and
+        // not an impossibility; whoever closes it will see this test fail, which is the signal.
+        var owner = new TestBillable("managed-qty", "cst_qty", "mdt_qty");
+
+        var result = await _cashier.NewSubscription(owner, "default", "pro").CreateAsync();
+        Assert.Equal(SubscriptionStatus.Active, result.Subscription.Status);
+
+        _db.Payments.Add(new Payment<string>
+        {
+            OwnerId = "managed-qty",
+            MolliePaymentId = "tr_qty_mandate",
+            Status = "paid",
+            Amount = 0.01m,
+            Currency = "EUR",
+            MollieMandateId = "mdt_qty",
+        });
+        await _db.SaveChangesAsync();
+
+        var dueItem = await _db.OrderItems
+            .FirstAsync(i => i.OwnerId == "managed-qty" && i.ProcessedAt == null);
+        dueItem.ProcessAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        dueItem.UnitPrice = 9.99m;
+        await _db.SaveChangesAsync();
+        Assert.Equal(1, dueItem.Quantity);
+
+        // Ten seats, through the documented public entry point.
+        await _cashier.UpdateQuantityAsync(owner, "default", 10);
+        var subAfter = await _db.Subscriptions.FindAsync(result.Subscription.Id);
+        Assert.Equal(10, subAfter!.Quantity);
+
+        var mockPayment = Substitute.For<PaymentResponse>();
+        mockPayment.Id = "tr_qty_1";
+        mockPayment.Status = "pending";
+        _mollieClient.CreateRecurringPaymentAsync(
+            "cst_qty", "mdt_qty", Arg.Any<decimal>(),
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(mockPayment);
+
+        await _engine.ProcessDueItemsAsync();
+
+        // Charged one seat, not ten.
+        await _mollieClient.Received(1).CreateRecurringPaymentAsync(
+            "cst_qty", "mdt_qty", 9.99m,
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _mollieClient.DidNotReceive().CreateRecurringPaymentAsync(
+            "cst_qty", "mdt_qty", 99.90m,
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        // And the next cycle carries the old quantity forward, not the subscription's.
+        var nextItem = await _db.OrderItems
+            .Where(i => i.OwnerId == "managed-qty" && i.ProcessedAt == null)
+            .SingleAsync();
+        Assert.Equal(1, nextItem.Quantity);
+        Assert.Equal(10, subAfter.Quantity);
+    }
+
     public void Dispose() => _db.Dispose();
 }

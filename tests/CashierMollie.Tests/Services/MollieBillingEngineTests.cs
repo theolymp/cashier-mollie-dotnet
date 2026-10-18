@@ -324,6 +324,29 @@ public class MollieBillingEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateQuantityAsync_SendsNothingToMollie_SoTheChargeIsUnchanged()
+    {
+        // "Seat-based billing" was claimed in the README and the XML summary. Nothing is sent: the
+        // only UpdateSubscriptionAsync call site in the library is SwapPlanAsync, and Mollie keeps
+        // charging its constant amount. Pinned so the claim cannot quietly return.
+        var sub = new Subscription<string>
+        {
+            OwnerId = "u1", Name = "default", Plan = "pro", Quantity = 1,
+            MollieCustomerId = "cst_test", MollieSubscriptionId = "sub_test",
+            Status = SubscriptionStatus.Active,
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        await _engine.UpdateQuantityAsync(sub, 10);
+
+        Assert.Equal(10, sub.Quantity);
+        await _mollieClient.DidNotReceive().UpdateSubscriptionAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal?>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task UpdateQuantityAsync_UpdatesSubscription()
     {
         var sub = new Subscription<string>

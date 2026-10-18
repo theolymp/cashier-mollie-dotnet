@@ -74,7 +74,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
-- **Quantity management** -- update, increment, and decrement subscription quantities (seat-based billing)
+- **Quantity management** -- update, increment, and decrement `Subscription.Quantity`. ⚠️ **Not seat-based billing**: no billing path reads that field, so changing it does not change what is charged
 - **Coupon system** -- fixed and percentage-based discounts with pluggable `ICouponRepository` and `ICouponHandler`
 - **Credit / balance system** -- add, apply, and check account credit balances per currency
 - **One-off charges** -- fluent `IChargeBuilder` for single payments with or without mandate
@@ -415,6 +415,14 @@ await _cashier.CancelAsync(user, "addons");
 ```
 
 ### Quantity management
+
+> ⚠️ **Changing the quantity does not change what is charged.** `Subscription.Quantity` is read only
+> to compute increments and to report the previous value in the event. On `MollieNative` nothing is
+> sent to Mollie at all, which keeps charging its constant amount. On `Managed` the charge is
+> `OrderItem.UnitPrice * OrderItem.Quantity`, and the next item copies the **previous item's**
+> quantity — so a seat change never reaches a charge. To bill a new seat count, set `Quantity` on the
+> pending `OrderItem` (Managed), or update the Mollie subscription amount yourself (MollieNative).
+
 
 Update subscription quantities for seat-based billing:
 
@@ -821,7 +829,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
 | `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |
-| `Quantity` | `int?` | Subscription quantity |
+| `Quantity` | `int?` | Subscription quantity. ⚠️ **Not read by any billing path** -- see [Quantity management](#quantity-management) |
 | `TrialEndsAt` | `datetimeoffset?` | End of trial period |
 | `EndsAt` | `datetimeoffset?` | End of subscription / grace period |
 | `CycleStartedAt` | `datetimeoffset?` | Start of current billing cycle |

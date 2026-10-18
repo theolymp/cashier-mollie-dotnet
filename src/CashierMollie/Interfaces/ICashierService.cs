@@ -91,13 +91,20 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// <summary>Updates the Mollie customer with current owner data.</summary>
     Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
 
-    /// <summary>Updates the subscription quantity (seat-based billing).</summary>
+    /// <summary>
+    /// Updates <c>Subscription.Quantity</c>. NOTE: this is NOT seat-based billing — no billing path
+    /// reads that field. MollieNative sends nothing to Mollie, which keeps charging its constant
+    /// amount; Managed charges UnitPrice * Quantity of the ORDER ITEM, and the next item copies the
+    /// previous item's quantity. Set the quantity on the pending OrderItem to bill a new seat count.
+    /// </summary>
     Task<Subscription<TKey>> UpdateQuantityAsync(IBillable<TKey> owner, string name, int quantity, CancellationToken ct = default);
 
-    /// <summary>Increments the subscription quantity by count.</summary>
+    /// <summary>Increments <c>Subscription.Quantity</c> by count. Does not change what is charged —
+    /// see <see cref="UpdateQuantityAsync"/>.</summary>
     Task<Subscription<TKey>> IncrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, CancellationToken ct = default);
 
-    /// <summary>Decrements the subscription quantity by count (minimum 1).</summary>
+    /// <summary>Decrements <c>Subscription.Quantity</c> by count (minimum 1). Does not change what is
+    /// charged — see <see cref="UpdateQuantityAsync"/>.</summary>
     Task<Subscription<TKey>> DecrementQuantityAsync(IBillable<TKey> owner, string name, int count = 1, CancellationToken ct = default);
 
     /// <summary>
