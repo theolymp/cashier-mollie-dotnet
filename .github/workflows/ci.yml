@@ -6,6 +6,23 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  # A vulnerability scan that only runs on push answers "was this commit clean when it was
+  # pushed", not "is the published package clean today" -- and those differ, because the advisory
+  # database moves while the code stands still. This repository is routinely idle for weeks with
+  # two versions live on nuget.org, so without a timer the shipped package is never re-examined.
+  # Measured 2026-10-26: the last run for the current HEAD was eight days old, and the only reason
+  # anyone knew the dependencies were still clean was a scan run by hand.
+  #
+  # Monday 04:17 UTC, deliberately off the hour: scheduled jobs queue on a shared pool and the
+  # top of the hour is the worst slot. The publish job cannot fire here -- it is gated on
+  # refs/tags/v*, which a schedule event never carries -- so a timed run builds, tests and scans
+  # and can publish nothing.
+  #
+  # Caveat worth knowing before trusting this: GitHub disables scheduled workflows in public
+  # repositories after 60 days without repository activity, and it does so quietly. A silent
+  # timer and a clean scan look identical from the outside, so do not read "no alert" as "scanned".
+  schedule:
+    - cron: '17 4 * * 1'
 
 # The SDK version is deliberately NOT declared here. It lives in global.json, and both jobs
 # install it from that file. A floating '10.0.x' resolves to whatever is newest on the runner,
