@@ -42,3 +42,8 @@ coverage/
 CLAUDE.md
 docs/
 .serena/
+# `dotnet skills install --auto` vendors the Microsoft skill catalog here.
+# Re-creatable with one command, and three of the six SKILL.md declare no
+# license -- so it is not published from this repository. Run the command
+# locally instead of expecting a clone to carry it.
+.github/skills/
