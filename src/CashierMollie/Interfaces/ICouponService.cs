@@ -12,6 +12,24 @@ public interface ICouponService<TKey> where TKey : IEquatable<TKey>
     Task<RedeemedCoupon<TKey>> RedeemAsync(IBillable<TKey> owner, string code,
         string subscriptionName = "default", CancellationToken ct = default);
 
+    /// <summary>
+    /// The discount an active redemption grants on one billing cycle of
+    /// <paramref name="unitPrice"/> x <paramref name="quantity"/>. Returns
+    /// <see cref="CouponDiscount.None"/> when no redemption has cycles left.
+    /// Pass the UNIT price: both shipped handlers multiply by quantity themselves, so handing them
+    /// a gross amount would apply the quantity twice.
+    /// </summary>
+    Task<CouponDiscount> CalculateActiveDiscountAsync(TKey ownerId, string subscriptionName,
+        decimal unitPrice, int quantity, CancellationToken ct = default);
+
+    /// <summary>
+    /// Consumes one billing cycle of the active redemption (decrements <c>TimesLeft</c>). Call this
+    /// only after the discounted charge actually succeeded — consuming first would spend a cycle on
+    /// a payment that failed.
+    /// </summary>
+    Task ConsumeRedemptionAsync(TKey ownerId, string subscriptionName,
+        CancellationToken ct = default);
+
     /// <summary>Revokes all active coupons for a subscription.</summary>
     Task RevokeAsync(IBillable<TKey> owner, string subscriptionName = "default",
         CancellationToken ct = default);

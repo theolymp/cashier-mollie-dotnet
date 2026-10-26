@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using CashierMollie.Data;
 using CashierMollie.Events;
 using CashierMollie.Interfaces;
@@ -30,7 +31,7 @@ public class MollieBillingEngineTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _engine = new MollieBillingEngine<string>(_db, _mollieClient, _dispatcher, options);
+        _engine = new MollieBillingEngine<string>(_db, _mollieClient, _dispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _dispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public class MollieBillingEngineTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_new", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         var result = await _engine.CreateSubscriptionAsync(owner, "default", "pro", options);
@@ -122,7 +123,7 @@ public class MollieBillingEngineTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_created", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         await _engine.CreateSubscriptionAsync(owner, "default", "pro", options);

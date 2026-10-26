@@ -81,6 +81,62 @@ public class CouponService<TKey> : ICouponService<TKey> where TKey : IEquatable<
     }
 
     /// <inheritdoc />
+    public async Task<CouponDiscount> CalculateActiveDiscountAsync(TKey ownerId,
+        string subscriptionName, decimal unitPrice, int quantity, CancellationToken ct = default)
+    {
+        var redeemed = await ActiveRedemptions(ownerId, subscriptionName)
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (redeemed is null)
+        {
+            return CouponDiscount.None;
+        }
+
+        var coupon = await _repo.FindByCodeAsync(redeemed.Code, ct);
+        if (coupon is null)
+        {
+            // Redeemed, then removed from the repository. Not zero-because-nothing-applies: zero
+            // because we cannot tell what should apply. The caller logs it.
+            return new CouponDiscount(0m, CouponDiscountStatus.DefinitionMissing, redeemed.Code);
+        }
+
+        decimal discount = GetHandler(coupon.HandlerType).CalculateDiscount(coupon, unitPrice, quantity);
+        decimal gross = unitPrice * quantity;
+
+        // A discount may never produce a negative charge, and a handler is consumer-replaceable.
+        decimal capped = Math.Clamp(discount, 0m, gross);
+        return new CouponDiscount(capped, CouponDiscountStatus.Applied, redeemed.Code);
+    }
+
+    /// <inheritdoc />
+    public async Task ConsumeRedemptionAsync(TKey ownerId, string subscriptionName,
+        CancellationToken ct = default)
+    {
+        var redeemed = await ActiveRedemptions(ownerId, subscriptionName)
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (redeemed is null)
+        {
+            return;
+        }
+
+        redeemed.TimesLeft -= 1;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Redemptions for this subscription with billing cycles left. One definition, used by both
+    /// methods above, so "which redemption applies" cannot answer differently in the two.
+    /// </summary>
+    private IQueryable<RedeemedCoupon<TKey>> ActiveRedemptions(TKey ownerId, string subscriptionName) =>
+        _db.RedeemedCoupons.Where(c =>
+            c.OwnerId!.Equals(ownerId)
+            && c.SubscriptionName == subscriptionName
+            && c.TimesLeft > 0);
+
+    /// <inheritdoc />
     public ICouponHandler GetHandler(string handlerType)
     {
         if (_handlers.TryGetValue(handlerType, out var handler))

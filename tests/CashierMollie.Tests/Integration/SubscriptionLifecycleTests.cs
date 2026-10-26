@@ -31,7 +31,7 @@ public class SubscriptionLifecycleTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
         _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
     }
 
@@ -83,7 +83,7 @@ public class SubscriptionLifecycleTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_new", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         var result = await _cashier.NewSubscription(ownerNoMandate, "default", "pro")
@@ -166,7 +166,7 @@ public class SubscriptionLifecycleTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_fp", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         // 1. Create subscription (pending — no mandate)
@@ -220,7 +220,7 @@ public class SubscriptionLifecycleTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_fail", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         var result = await _cashier.NewSubscription(owner, "default", "pro")

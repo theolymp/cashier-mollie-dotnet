@@ -7,12 +7,14 @@ public record SubscriptionOptions
     public int TrialDays { get; init; }
 
     /// <summary>
-    /// NOT READ BY THIS LIBRARY — set by <c>WithCoupon()</c> and read by nothing. Creating a
-    /// subscription with a coupon code neither validates it, nor records a redemption, nor
-    /// reduces any amount: both billing engines ignore this field, so the subscription is created
-    /// at full price with no error and no event. The coupon system is reachable only through
-    /// <c>ICouponService</c>, which you call yourself.
-    /// Intended meaning: the coupon code to apply to this subscription.
+    /// The coupon code to apply to this subscription. Both engines now read it: the code is
+    /// validated and the redemption recorded when the subscription is created, and an unknown code
+    /// fails the create instead of being ignored.
+    /// <para>
+    /// On the Managed engine the redemption then reduces each recurring charge until its cycles are
+    /// used up. On the default (MollieNative) engine it is recorded and reduces nothing, because
+    /// that engine registers no recurring charge with Mollie at all — it logs a warning saying so.
+    /// </para>
     /// </summary>
     public string? CouponCode { get; init; }
 
@@ -23,10 +25,13 @@ public record SubscriptionOptions
     public bool Prorate { get; init; }
 
     /// <summary>
-    /// NOT READ BY THIS LIBRARY — set by <c>WithMetadata()</c> and read by nothing. No request
-    /// this library sends to Mollie carries metadata, so a value here reaches neither Mollie nor
-    /// any local row.
-    /// Intended meaning: custom metadata to attach to the subscription.
+    /// Custom metadata attached to the first payment Mollie creates for this subscription, stored
+    /// at Mollie as JSON and returned whenever that payment is fetched.
+    /// <para>
+    /// Scope, precisely: the FIRST payment only. Recurring charges are created from order items,
+    /// which have no metadata column, so nothing carries it to them — that needs a schema change
+    /// and is listed in BACKLOG.md.
+    /// </para>
     /// </summary>
     public Dictionary<string, string>? Metadata { get; init; }
 

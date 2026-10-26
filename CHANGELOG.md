@@ -24,7 +24,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   it also fails when the output is unrecognised -- otherwise a scan that did not run is
   indistinguishable from a clean one.
 
+### Added
+- **A coupon now changes the amount.** Given a code, both engines validate it and record the
+  redemption when the subscription is created — an unknown code throws instead of being dropped —
+  and the `Managed` engine subtracts the discount from every recurring charge until the coupon's
+  cycles are spent. The cycle is consumed **only after** the discounted payment succeeded, so a
+  failed charge no longer costs the customer one. A discount never produces a negative amount.
+  Pinned by tests that assert the amount handed to Mollie: 29.00 with a 10% coupon charges 26.10,
+  without one charges 29.00, and a quantity of three discounts 3.00 rather than 9.00 — both shipped
+  handlers multiply by quantity themselves, so passing a gross amount would apply it twice.
+  Verified by sabotage: removing the subtraction fails three of the ten coupon tests and leaves the
+  known-negative passing; passing the gross instead of the unit price fails only the quantity test,
+  which is the only one that can see it.
+  On `MollieNative` the redemption is recorded and reduces nothing, because that engine makes no
+  recurring charge at all — it logs a warning naming the code rather than staying silent.
+- **`ICouponService` gained `CalculateActiveDiscountAsync` and `ConsumeRedemptionAsync`**, and both
+  engines now take an `ICouponService<TKey>`. Required rather than optional: a nullable dependency
+  would mean an engine that silently cannot apply a coupon, which is the defect being removed.
+  Neither known consumer constructs an engine directly (measured: no reference to `IBillingEngine`
+  in either), so the constructor change is inert for them.
+- **Metadata reaches Mollie.** `WithMetadata()` on the subscription builder and on the charge builder
+  now send their dictionary as JSON on the payment request; an absent or empty dictionary sends no
+  metadata field rather than `{}`. Asserted on the request object handed to the Mollie client, which
+  is the last point this library controls. **Not covered:** a run against Mollie's test mode — the
+  credential for that is held in the secret store, and a simulated call would be worth less than the
+  gap it hides. Scope: the **first** payment only; recurring charges come from order items, which
+  have no metadata column.
+- `CouponDiscount` and `CouponDiscountStatus`: a discount carries why it is what it is, so a
+  redemption whose definition has been removed from configuration is distinguishable from no coupon
+  at all. The first charges full price and logs a warning; collapsing them would charge full price in
+  silence.
+
 ### Changed
+- **The default engine's documentation no longer claims to delegate to Mollie's Subscription API.**
+  Measured 2026-10-26: `MollieSubscriptionId` has no assignment anywhere in this library and
+  `IMollieClientService.CreateSubscriptionAsync` has no caller, so `MollieNative` registers no
+  recurring subscription with Mollie and nothing is charged after the mandate payment; the
+  cancel-at-Mollie and update-at-Mollie branches are unreachable. Corrected in the engine's own
+  summary, in the README's Billing Engines section, and in the dunning table, whose `MollieNative`
+  row described Mollie retrying a subscription that is never created. The gap itself is now the
+  top item in `BACKLOG.md`, with options rather than a chosen solution.
 - **Proration now fails at every entry point, not just the documented two.** Both billing engines
   guard `CreateSubscriptionAsync` and `SwapPlanAsync`, so a caller who injects the public,
   DI-registered `IBillingEngine` no longer gets the old silence. Create is guarded as well as swap

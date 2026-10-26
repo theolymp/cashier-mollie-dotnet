@@ -48,7 +48,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange: owner with existing mandate (direct activation, no checkout)
         var owner = new TestBillable("e2e-user-1", "cst_e2e_1", "mdt_e2e_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Step 1: Create subscription -> should be Active immediately
@@ -110,7 +110,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange
         var owner = new TestBillable("e2e-managed-1", "cst_mgd_1", "mdt_mgd_1");
-        var engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<ManagedBillingEngine<string>>.Instance);
+        var engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<ManagedBillingEngine<string>>.Instance, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher));
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Step 1: Create subscription (owner has mandate, direct activation)
@@ -154,7 +154,7 @@ public class EndToEndTests : IDisposable
 
         _mollieClient.CreateRecurringPaymentAsync(
             "cst_mgd_1", "mdt_mgd_1", Arg.Any<decimal>(),
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockRecurringPayment);
 
         // Step 6: Process due items
@@ -308,7 +308,7 @@ public class EndToEndTests : IDisposable
 
         _mollieClient.CreateRecurringPaymentAsync(
             "cst_charge_1", "mdt_charge_1", 25.00m,
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPaymentResponse);
 
         // Step 1: Create charge via ChargeBuilder
@@ -392,7 +392,7 @@ public class EndToEndTests : IDisposable
 
         // Create an active subscription for the owner
         var owner = new TestBillable("e2e-coupon-1", "cst_coupon_1", "mdt_coupon_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         await cashier.NewSubscription(owner, "default", "pro-monthly")
@@ -437,7 +437,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange
         var owner = new TestBillable("e2e-trial-1", "cst_trial_1", "mdt_trial_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Act: create subscription with 14-day trial

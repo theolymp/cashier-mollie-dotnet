@@ -30,7 +30,7 @@ public class ManagedBillingEngineTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _dispatcher, options, NullLogger<ManagedBillingEngine<string>>.Instance);
+        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _dispatcher, options, NullLogger<ManagedBillingEngine<string>>.Instance, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _dispatcher));
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class ManagedBillingEngineTests : IDisposable
 
         _mollieClient.CreateFirstPaymentAsync(
             "cst_new", Arg.Any<decimal>(), "EUR",
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         var result = await _engine.CreateSubscriptionAsync(owner, "default", "pro", options);
@@ -287,7 +287,7 @@ public class ManagedBillingEngineTests : IDisposable
         mockPayment.Status = "pending";
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         await _engine.ProcessDueItemsAsync();
@@ -301,7 +301,7 @@ public class ManagedBillingEngineTests : IDisposable
         // Verify Mollie was called with the mandate from the seeded payment
         await _mollieClient.Received(1).CreateRecurringPaymentAsync(
             "cst_test", "mdt_test", Arg.Any<decimal>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -348,7 +348,7 @@ public class ManagedBillingEngineTests : IDisposable
         mockPayment.Status = "pending";
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         await _engine.ProcessDueItemsAsync();
@@ -411,7 +411,7 @@ public class ManagedBillingEngineTests : IDisposable
         mockPayment.Status = "pending";
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         await _engine.ProcessDueItemsAsync();
@@ -457,7 +457,7 @@ public class ManagedBillingEngineTests : IDisposable
         // Mollie should NOT be called
         await _mollieClient.DidNotReceive().CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

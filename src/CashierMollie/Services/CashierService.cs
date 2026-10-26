@@ -187,7 +187,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
             _options.Currency,
             "Update payment method",
             redirectUrl ?? _options.PaymentMethodUpdateRedirectUrl,
-            _options.EffectiveWebhookUrl, ct);
+            _options.EffectiveWebhookUrl, metadata: null, ct);
 
         var checkoutUrl = payment.Links?.Checkout?.Href
             ?? throw new CashierException("Mollie did not return a checkout URL for payment method update.");

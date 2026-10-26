@@ -44,7 +44,7 @@ public class ProrationNotSupportedTests : IDisposable
             FirstPaymentRedirectUrl = "/billing/success",
         };
         var wrapped = Options.Create(options);
-        var engine = new MollieBillingEngine<string>(_db, mollieClient, dispatcher, wrapped);
+        var engine = new MollieBillingEngine<string>(_db, mollieClient, dispatcher, wrapped, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), dispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
 
         _owner = new TestBillable("user-1", "cst_test", "mdt_test");
         _cashier = new CashierService<string>(_db, engine, mollieClient, dispatcher, wrapped,
@@ -110,12 +110,17 @@ public class ProrationNotSupportedTests : IDisposable
 
     private MollieBillingEngine<string> NativeEngine() =>
         new(_db, Substitute.For<IMollieClientService>(), Substitute.For<ICashierEventDispatcher>(),
-            Options.Create(new CashierMollieOptions { Currency = "EUR" }));
+            Options.Create(new CashierMollieOptions { Currency = "EUR" }),
+            new CouponService<string>(_db, Substitute.For<ICouponRepository>(),
+                Substitute.For<ICashierEventDispatcher>()),
+            NullLogger<MollieBillingEngine<string>>.Instance);
 
     private ManagedBillingEngine<string> ManagedEngine() =>
         new(_db, Substitute.For<IMollieClientService>(), Substitute.For<ICashierEventDispatcher>(),
             Options.Create(new CashierMollieOptions { Currency = "EUR" }),
-            NullLogger<ManagedBillingEngine<string>>.Instance);
+            NullLogger<ManagedBillingEngine<string>>.Instance,
+            new CouponService<string>(_db, Substitute.For<ICouponRepository>(),
+                Substitute.For<ICashierEventDispatcher>()));
 
     [Fact]
     public async Task NativeEngine_CreateWithProrateTrue_Throws()

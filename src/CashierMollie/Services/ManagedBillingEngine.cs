@@ -26,6 +26,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
     private readonly ILogger<ManagedBillingEngine<TKey>> _logger;
+    private readonly ICouponService<TKey> _coupons;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ManagedBillingEngine{TKey}"/>.
@@ -35,18 +36,23 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     /// <param name="eventDispatcher">The event dispatcher for lifecycle events.</param>
     /// <param name="options">CashierMollie configuration options.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="coupons">Coupon validation, redemption and discount calculation. Required
+    /// rather than optional: an engine that silently cannot apply a coupon is the defect this
+    /// parameter exists to end.</param>
     public ManagedBillingEngine(
         CashierDbContext<TKey> db,
         IMollieClientService mollieClient,
         ICashierEventDispatcher eventDispatcher,
         IOptions<CashierMollieOptions> options,
-        ILogger<ManagedBillingEngine<TKey>> logger)
+        ILogger<ManagedBillingEngine<TKey>> logger,
+        ICouponService<TKey> coupons)
     {
         _db = db;
         _mollieClient = mollieClient;
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
         _logger = logger;
+        _coupons = coupons;
     }
 
     /// <inheritdoc />
@@ -83,6 +89,16 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         _db.Subscriptions.Add(subscription);
         await _db.SaveChangesAsync(ct);
 
+        // A coupon code is a money instruction. Validate it and record the redemption here, or
+        // reject it: until 2026-10-26 this field travelled from the builder into this method and
+        // was dropped — full price, no redemption, no event, no error. ValidateAsync throws for an
+        // unknown code, which is why an invalid coupon now fails the create instead of being
+        // quietly ignored.
+        if (!string.IsNullOrWhiteSpace(options.CouponCode))
+        {
+            await _coupons.RedeemAsync(owner, options.CouponCode, name, ct);
+        }
+
         string? checkoutUrl = null;
         bool requiresAction = false;
 
@@ -93,7 +109,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
                 $"First payment for {plan}",
                 _options.FirstPaymentRedirectUrl,
-                _options.EffectiveWebhookUrl, ct);
+                _options.EffectiveWebhookUrl, options.Metadata, ct);
 
             var localPayment = new Payment<TKey>
             {
@@ -254,11 +270,35 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
             try
             {
+                decimal gross = item.UnitPrice * item.Quantity;
+
+                // The unit price and the quantity go in separately: both shipped handlers multiply
+                // by quantity themselves, so passing the gross would apply the quantity twice.
+                CouponDiscount discount = await _coupons.CalculateActiveDiscountAsync(
+                    item.OwnerId, subscription.Name, item.UnitPrice, item.Quantity, ct);
+
+                if (discount.Status == CouponDiscountStatus.DefinitionMissing)
+                {
+                    // Charging full price here is defensible; doing it silently is not.
+                    LogCouponDefinitionMissing(discount.Code!, item.Id);
+                }
+
+                decimal net = gross - discount.Amount;
+
                 // Create a recurring payment via Mollie
                 var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
-                    customerId, mandateId, item.UnitPrice * item.Quantity,
+                    customerId, mandateId, net,
                     item.Currency, item.Description,
-                    _options.EffectiveWebhookUrl, ct);
+                    _options.EffectiveWebhookUrl, metadata: null, ct);
+
+                if (discount.Status == CouponDiscountStatus.Applied)
+                {
+                    LogCouponApplied(discount.Code!, gross, net, item.Id);
+
+                    // Only after the charge succeeded: consuming first would spend a billing cycle
+                    // of the coupon on a payment that threw.
+                    await _coupons.ConsumeRedemptionAsync(item.OwnerId, subscription.Name, ct);
+                }
 
                 // Mark the item as processed
                 item.MolliePaymentId = molliePayment.Id;
@@ -301,6 +341,9 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                         {
                             OwnerId = item.OwnerId,
                             SubscriptionId = item.SubscriptionId,
+                            // Gross, deliberately: the discount is computed inside the try block,
+                            // so a failure before that point has no net amount to report. Stating
+                            // the list price is honest; inventing a net one would not be.
                             Amount = item.UnitPrice * item.Quantity,
                             Currency = item.Currency,
                             Status = "failed",
@@ -322,4 +365,15 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to process order item {OrderItemId}")]
     private partial void LogOrderItemProcessingFailed(long orderItemId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Coupon {Code} reduced order item {OrderItemId} from {Gross} to {Net}")]
+    private partial void LogCouponApplied(string code, decimal gross, decimal net, long orderItemId);
+
+    // A redemption whose definition is gone. Warning rather than information: the customer is
+    // charged full price while holding a coupon, and nobody finds that by reading a total.
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Coupon {Code} is redeemed for order item {OrderItemId} but its definition is no "
+            + "longer available from the coupon repository; charging the full amount")]
+    private partial void LogCouponDefinitionMissing(string code, long orderItemId);
 }

@@ -33,7 +33,7 @@ public class CashierServiceTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
         _sut = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
         _owner = new TestBillable("user-1", "cst_test", "mdt_test");
     }
@@ -341,7 +341,7 @@ public class CashierServiceTests : IDisposable
         _mollieClient.CreateFirstPaymentAsync(
             Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         var result = await _sut.UpdatePaymentMethodAsync(_owner);

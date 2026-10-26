@@ -13,6 +13,11 @@ namespace CashierMollie.Tests.Architecture;
 /// settings below, and CouponCode/Metadata — so it is worth a detector rather than another round of
 /// noticing.
 ///
+/// CouponCode and Metadata were on the unread list for exactly one commit: this test is what forced
+/// their XML summaries to be rewritten when they were wired up, which is the direction it was built
+/// to work in. It failed the moment the engines started reading them, and the fix was to correct the
+/// documentation rather than the test.
+///
 /// THE DETECTOR ITSELF LET TWO THROUGH, and the reason is worth more than the finding: it counted
 /// every MENTION outside a comment as a read. CouponCode and Metadata each have exactly one mention
 /// in production code, and it is the builder WRITING the value on its way to an engine that ignores
@@ -44,12 +49,15 @@ public class OptionsSurfaceTests
     /// <see cref="EverySettableOption_IsReadSomewhere"/>.
     /// </summary>
     private static readonly string[] UnreadOptions =
-        ["ApiKey", "Locale", "OrderNumberFormat", "CouponCode", "Metadata"];
+        ["ApiKey", "Locale", "OrderNumberFormat"];
 
     // Deliberately scoped to this library. An earlier marker read "nothing reads this setting" —
     // a claim about the world drawn from a measurement of one repository. A consumer binds this
-    // section and may read the key itself: identity uses ApiKey as its billing on/off switch, fed
-    // from a secret store. Calling it inert would have invited deleting a live switch.
+    // section and may read the key itself: at least one consumer uses ApiKey as its billing on/off
+    // switch, fed from a secret store, registering nothing at all when it is empty. Calling it
+    // inert would have invited deleting a live switch.
+    // (The consumer was named here by mistake in an earlier commit. This repository is public;
+    // internal project names do not belong in it, however harmless they look.)
     private const string NotHonouredMarker = "NOT READ BY THIS LIBRARY";
 
     private static readonly Type[] OptionTypes =

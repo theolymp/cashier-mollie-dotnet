@@ -6,10 +6,13 @@ namespace CashierMollie.Interfaces;
 public interface ICouponHandler
 {
     /// <summary>
-    /// Calculates the discount amount for a given coupon, base amount and quantity.
-    /// NEVER CALLED BY THIS LIBRARY — the only two sites are the two implementations. No billing
-    /// path reduces an amount by a coupon, so this is a calculator you invoke yourself (via
-    /// <c>ICouponService.GetHandler</c>) and apply to your own pricing.
+    /// Calculates the discount for a given coupon, base amount and quantity.
+    /// <para>
+    /// Called by <c>ICouponService.CalculateActiveDiscountAsync</c>, which the Managed engine uses
+    /// on every recurring charge. Note the contract both shipped handlers follow: <c>amount</c> is
+    /// the UNIT price and the handler multiplies by <paramref name="quantity"/> itself, so a
+    /// replacement must do the same or the quantity is applied twice.
+    /// </para>
     /// </summary>
     decimal CalculateDiscount(Coupon coupon, decimal amount, int quantity);
 }

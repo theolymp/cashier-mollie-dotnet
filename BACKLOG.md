@@ -12,6 +12,40 @@ not by priority.
 
 ## Billing correctness
 
+### The default engine registers no subscription with Mollie, so nothing recurring is charged
+
+**The highest-priority item in this file.** Measured 2026-10-26:
+
+- `MollieSubscriptionId` has **no assignment** anywhere in the library. Known-positive for the same
+  search: `MollieCustomerId` has six, in four files.
+- `IMollieClientService.CreateSubscriptionAsync` — the only method that registers a recurring
+  subscription with Mollie — has **no caller** outside its own declaration and implementation.
+- Both branches that cancel or update a subscription at Mollie are guarded on
+  `!string.IsNullOrEmpty(subscription.MollieSubscriptionId)` and are therefore **unreachable**.
+
+What happens today on `MollieNative`: a local subscription row, a first payment of
+`PaymentMethodUpdateAmount` (default 0.01) to acquire the mandate, activation by webhook — and then
+nothing. No recurring charge is ever made, by this library or by Mollie. The engine's own
+documentation said it "delegates subscription CRUD to the Mollie API"; it did not, and that sentence
+has been corrected at both places it appeared.
+
+Everything downstream follows from this: a coupon cannot reduce a charge that is never made,
+proration has no amount to prorate, and the dunning table's "Mollie retries" row described retries
+of a subscription that does not exist.
+
+**Options, with what each costs — not a decision:**
+
+| | What it does | Cost / consequence |
+|---|---|---|
+| **A — create the Mollie subscription** | Call `CreateSubscriptionAsync` after the mandate is confirmed (in the webhook, where the mandate first exists) and store the id. Makes the engine what its name says. | Needs an amount and an interval, so it needs plan→price resolution, which does not exist either. Mollie then owns the cycle: amounts can only change through a subscription update, and a coupon becomes "update the Mollie amount", not "subtract at charge time". |
+| **B — make `Managed` the default** | The engine that already charges becomes the one you get without configuring anything. | A breaking change in the failure semantics of every application that never set `BillingEngine` — which the README already calls part of the public contract. Also inherits the `UnitPrice = 0` gap: Managed charges what the consumer prices, and prices nothing by itself. |
+| **C — fail closed** | `MollieNative` throws on create until A is built, so nobody stands on an engine that bills nothing. | Immediately breaks any consumer on the default, including those who only wanted mandate acquisition and bill elsewhere. Honest and loud; the harshest of the three. |
+| **D — document only** | What this commit did. | The gap stays, and it stays discoverable only by reading. Acceptable only because nothing is in production billing yet. |
+
+A and B both depend on plan price resolution (below), which is why neither is a small change. The
+decision is not this repository's to take alone: it changes what a consumer's subscription means.
+
+
 ### Proration is not implemented, and says so loudly
 
 `WithProration()` and a swap with `SwapOptions { Prorate = true }` throw `NotSupportedException`.
@@ -47,35 +81,40 @@ To bill a new seat count, set the quantity on the pending order item.
 
 Open: same decision as the swap above.
 
-### The coupon path accepts a code and charges full price
+### Coupons: wired, and only the Managed engine can act on them
 
-`WithCoupon()` stores the code in `SubscriptionOptions.CouponCode`. Measured 2026-10-26: that
-property has **one** site in production code and it is the builder *writing* it; nothing reads it,
-and neither engine mentions coupons at all. So `.WithCoupon("SAVE50").CreateAsync()` creates the
-subscription at full price, records no redemption, raises no event and returns no error.
+Closed the inert part on 2026-10-26. A coupon code given to the builder is now validated and
+redeemed when the subscription is created — an unknown code throws instead of being dropped — and on
+the `Managed` engine the discount is subtracted from every recurring charge until the coupon's
+cycles are spent. A cycle is consumed only after the discounted payment succeeded.
 
-Separately, `ICouponHandler.CalculateDiscount` has **zero** call sites — its only two references
-are its two implementations. Redeeming through `ICouponService.RedeemAsync` does work: it writes a
-`cashier_redeemed_coupons` row and dispatches `CouponApplied`. It does not change any amount.
+On `MollieNative` the redemption is recorded and reduces nothing, because that engine makes no
+recurring charge (top item). It logs a warning naming the code rather than staying silent.
 
-So the coupon system is the credit system's shape: a ledger plus a calculator, with no settlement.
-Now stated on the members, in the README, and pinned by `CouponCodeIsInertTests` — which exists to
-go **red** when the path is wired, so the documentation has to change in the same commit.
+**Still open, and both are deliberate:**
 
-Open: the same decision as the swap and quantity no-ops below — should `WithCoupon()` throw like
-`WithProration()`, or be wired to validate and redeem? Throwing is a breaking change on a published
-API, so it is not a repair to make unilaterally. Wiring it needs answers first: redeem before or
-after the first payment succeeds, and what happens to the redemption if it fails.
+- **The discount is not persisted.** The charged amount differs from `OrderItem.UnitPrice *
+  Quantity` with no local column recording why — the trace is the Mollie payment and the log line. A
+  `DiscountAmount` column on the order item would fix it and changes the generated schema, so it
+  needs the same migration decision as `HasPrecision` below.
+- **A redemption whose definition disappeared** (code removed from configuration after it was
+  redeemed) charges the full amount and logs a warning. The third state is distinguished from "no
+  coupon" in the API (`CouponDiscountStatus.DefinitionMissing`) rather than collapsed into it; what
+  to *do* about it — honour a last known discount, suspend, notify — is unanswered.
 
-### Metadata is accepted and dropped, on both builders
+### Metadata reaches the first payment, and only that one
 
-`SubscriptionOptions.Metadata` has the same shape as `CouponCode`: one write site in the builder,
-zero reads. No request this library sends to Mollie carries metadata. `IChargeBuilder.WithMetadata`
-is worse in one respect — it stores into a private field with no read site at all, and the compiler
-does not flag it (measured: a clean build with zero warnings, `TreatWarningsAsErrors` on). Its
-summary used to promise metadata "for your own reference"; there was nowhere to refer to it from.
+Closed the inert part on 2026-10-26: `WithMetadata()` on the subscription builder and on the charge
+builder now send metadata to Mollie as JSON, asserted on the request object handed to the Mollie
+client. An absent or empty dictionary sends no metadata field rather than `{}`.
 
-Open: same decision as the coupon above. Documented, not throwing.
+Open: **recurring charges carry nothing.** They are created from order items, which have no metadata
+column, so the dictionary does not follow a subscription into later cycles. Same schema decision as
+the discount column above.
+
+Not covered: a run against Mollie's test mode. The request object is verified here; that the field
+survives the wire is not, and the credential for that lives in the secret store rather than
+anywhere this repository can reach.
 
 ### No dunning or retry policy
 
@@ -123,6 +162,11 @@ is why they passed.
 
 The pattern now requires an instance dot and rejects a following single `=`. Verified by sabotage in
 both directions on the same test: old pattern + undeclared option → passes, new pattern → fails.
+
+**It then worked in the other direction within the same day.** When the coupon and metadata paths
+were wired, the two options became read, and the test failed until their XML summaries were
+rewritten — which is the whole point of pinning both directions. The entry below shrank from five
+unread options back to three as a result.
 
 Two things worth keeping from it: a detector whose criterion is "the name appears" cannot distinguish
 reading from writing, and the sentences that document a gap **mention the gap's identifiers**, so the

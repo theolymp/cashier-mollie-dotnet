@@ -56,7 +56,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_direct", "pending"));
 
         var builder = new ChargeBuilder<string>(
@@ -76,7 +76,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateFirstPaymentAsync(
             Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_first", "open", "https://checkout.mollie.com/xxx"));
 
         var builder = new ChargeBuilder<string>(
@@ -96,7 +96,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_order", "pending"));
 
         var builder = new ChargeBuilder<string>(
@@ -123,7 +123,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_event", "pending"));
 
         var builder = new ChargeBuilder<string>(
@@ -143,7 +143,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Is("Pro upgrade"), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_desc", "pending"));
 
         var builder = new ChargeBuilder<string>(
@@ -153,7 +153,7 @@ public class ChargeBuilderTests : IDisposable
 
         await _mollieClient.Received(1).CreateRecurringPaymentAsync(
             "cst_test", "mdt_test", 9.99m, "EUR", "Pro upgrade", "/cashier/webhook",
-            Arg.Any<CancellationToken>());
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -186,7 +186,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_persist", "pending"));
 
         var builder = new ChargeBuilder<string>(
@@ -216,7 +216,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateFirstPaymentAsync(
             Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_newcust", "open", "https://checkout.mollie.com/new"));
 
         var builder = new ChargeBuilder<string>(
@@ -234,7 +234,7 @@ public class ChargeBuilderTests : IDisposable
         _mollieClient.CreateRecurringPaymentAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(),
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(CreateMockPaymentResponse("tr_meta", "pending"));
 
         var metadata = new Dictionary<string, string> { { "product", "lifetime-pass" } };

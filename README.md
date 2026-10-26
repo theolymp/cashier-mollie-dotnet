@@ -70,7 +70,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 ## Features
 
 - **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions with a fluent API
-- **Dual billing engine** -- choose between Mollie's native Subscription API (`MollieNative`) or a self-managed billing cycle (`Managed`) with background processing
+- **Dual billing engine** -- `MollieNative` (default) or a self-managed billing cycle (`Managed`) with background processing. ⚠️ **`MollieNative` does not currently register a recurring subscription with Mollie and charges nothing after the mandate payment** -- see [Billing Engines](#billing-engines)
 - **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
@@ -441,7 +441,24 @@ await _cashier.DecrementQuantityAsync(user, "default", 2);
 
 CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` strategy pattern:
 
-**MollieNative (default)** -- delegates billing to Mollie's Subscription API. Mollie manages the billing cycle and sends webhooks for each payment.
+**MollieNative (default)** -- named for Mollie's Subscription API.
+
+> ⚠️ **It does not currently create a Mollie subscription, so nothing recurring is charged.**
+> Measured 2026-10-26: `MollieSubscriptionId` has no assignment anywhere in this library, and
+> `IMollieClientService.CreateSubscriptionAsync` -- the only method that would register a recurring
+> subscription with Mollie -- has no caller. The cancel-at-Mollie and update-at-Mollie branches are
+> guarded on that field being set and are therefore unreachable.
+>
+> What this engine does today: creates the local subscription row, takes a first payment of
+> `PaymentMethodUpdateAmount` (default **0.01**) to acquire a mandate, and activates the
+> subscription when the webhook reports that payment as paid. After that, no further charge is
+> made by this library or by Mollie.
+>
+> The sentence here previously read "delegates billing to Mollie's Subscription API. Mollie manages
+> the billing cycle and sends webhooks for each payment." That described an intent, not the code.
+> **If you need recurring money to move, use `Managed`** -- or create the Mollie subscription
+> yourself via `IMollieClientService`, which is public and registered. This is the top item in
+> [BACKLOG.md](BACKLOG.md).
 
 **Managed** -- runs its own billing cycle locally. Schedules `OrderItem` records with `ProcessAt` dates and creates on-demand recurring payments via Mollie mandates. Requires the `CashierBackgroundService` (registered automatically).
 
@@ -467,23 +484,28 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
 
 ## Coupons
 
-CashierMollie records coupon redemptions and can calculate a discount. It does **not** subtract one
-from anything.
+A coupon is validated and recorded when the subscription is created, and on the `Managed` engine it
+reduces every recurring charge until its cycles are used up.
 
-> ⚠️ **Read this before offering a coupon.** Three measured facts, 2026-10-26:
+> **What changed, and what it depends on.** Up to and including 0.4.0, `WithCoupon()` stored the
+> code and nothing read it: full price, no redemption, no event, no error. It is wired now, and the
+> effect differs by engine -- deliberately, because one of them charges nothing to discount:
 >
-> 1. **`WithCoupon()` on the subscription builder does nothing at all.** It stores the code in
->    `SubscriptionOptions.CouponCode`, which has zero read sites -- neither billing engine mentions
->    coupons. The subscription is created at full price, no redemption is recorded, no event is
->    raised and no error is returned. It is kept only because removing it would break a published
->    API.
-> 2. **`CalculateDiscount` is never called by this library.** Its only two references are its two
->    implementations. It is a calculator for you to invoke.
-> 3. **Nothing reduces an amount.** Redeeming a coupon writes a `cashier_redeemed_coupons` row and
->    raises `CouponApplied`. Applying the money effect is yours: on the Managed engine via
->    `OrderItem.UnitPrice`, on MollieNative not at all, because Mollie charges its own fixed amount.
+> | | `Managed` | `MollieNative` (default) |
+> |---|---|---|
+> | Code validated on create | yes -- unknown code throws | yes |
+> | Redemption recorded | yes | yes |
+> | Recurring charge reduced | **yes**, by the handler's discount, until `Times` cycles are spent | **no** -- this engine makes no recurring charge at all, and logs a warning saying so |
 >
-> This is the same shape as the credit system: a ledger, not a settlement.
+> A discount never produces a negative charge, and a cycle is consumed **only after the discounted
+> payment succeeded** -- otherwise a failed charge would silently spend one of the customer's
+> cycles.
+>
+> Two limits worth knowing: the discount is not stored on the order item, so the reduction is
+> visible in the Mollie payment and the log rather than in a local column (a schema change, listed
+> in [BACKLOG.md](BACKLOG.md)); and if a redeemed coupon is later removed from configuration, the
+> full amount is charged and a warning is logged -- the redemption is not silently treated as
+> absent.
 
 ```csharp
 var couponService = serviceProvider.GetRequiredService<ICouponService<string>>();
@@ -729,7 +751,7 @@ the billing engine:
 
 | Engine | What retries | What you still own |
 |--------|--------------|--------------------|
-| `MollieNative` (default) | **Mollie**, on its own subscription retry schedule. Not this library. | Deciding what happens when Mollie stops retrying -- suspend access, notify the customer, escalate. |
+| `MollieNative` (default) | **Nothing.** Mollie retries the charges of a subscription it knows about, and this library creates none -- so there is no recurring charge to fail and none to retry. The mandate payment is the only charge it makes. | Everything, starting with whether you need the `Managed` engine instead. |
 | `Managed` | Nothing explicitly. The failed `OrderItem` is simply left unconsumed, so the **next billing cycle picks it up again** -- retry by omission, with **no attempt limit and no backoff**. | Capping attempts and giving up. Without that, a permanently failing item is retried forever. |
 
 **Do not assume the library will eventually give up and suspend the subscription -- it will not.**
@@ -1004,11 +1026,13 @@ Fluent builder for creating subscriptions with optional configuration.
 ```csharp
 public interface ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
 {
-    ISubscriptionBuilder<TKey> WithCoupon(string coupon);   // INERT: stored, never read
+    ISubscriptionBuilder<TKey> WithCoupon(string coupon);   // validated + redeemed; reduces the
+                                                           // charge on Managed only
     ISubscriptionBuilder<TKey> TrialDays(int days);
     ISubscriptionBuilder<TKey> WithProration();             // THROWS: not implemented
     ISubscriptionBuilder<TKey> WithMandateOnly();
-    ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);  // INERT: never sent
+    ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);  // sent to Mollie
+                                                           // with the FIRST payment
     Task<SubscriptionResult<TKey>> CreateAsync(CancellationToken ct = default);
 }
 ```
@@ -1051,7 +1075,7 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [x] **Subscription lifecycle** -- create, cancel, resume, swap with grace periods and trials
 - [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
 - [x] **Dual billing engine** -- MollieNative and Managed with background processing
-- [x] **Coupon / discount system** -- redemption tracking and discount *calculation* with configurable handlers, with the caveat that no billing path applies a discount and `WithCoupon()` on the builder is inert; `CalculateDiscount` has no call site in the library
+- [x] **Coupon / discount system** -- validation and redemption on create, and the discount applied to every recurring charge on the `Managed` engine until the coupon's cycles are spent. On `MollieNative` the redemption is recorded and reduces nothing, because that engine makes no recurring charge
 - [x] **Quantity management** -- increment, decrement, and update subscription quantities
 - [x] **Credit / balance system** -- per-user account credit management
 - [x] **One-off charges** -- single payments with fluent builder
@@ -1064,6 +1088,8 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [ ] **Proration** -- credit calculation for mid-cycle plan changes
 - [ ] **Invoice generation** -- built-in HTML/PDF invoice renderer
 - [ ] **Plan pricing resolution** -- automatic price lookup for managed billing engine
+- [ ] **Recurring billing on `MollieNative`** -- the engine registers no subscription with Mollie, so nothing is charged after the mandate payment. Highest-priority item; see [BACKLOG.md](BACKLOG.md)
+- [ ] **Metadata on recurring charges** -- order items carry no metadata, so only the first payment takes it to Mollie
 - [ ] **Dunning / retry logic** -- automatic payment retry with escalation
 
 ## Contributing

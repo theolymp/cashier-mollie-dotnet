@@ -24,18 +24,24 @@ public interface IMollieClientService
 
     /// <summary>Creates a first payment (SequenceType.First) to acquire a mandate for recurring billing.</summary>
     Task<PaymentResponse> CreateFirstPaymentAsync(string customerId, decimal amount, string currency,
-        string description, string redirectUrl, string webhookUrl, CancellationToken ct = default);
+        string description, string redirectUrl, string webhookUrl,
+        IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
 
-    /// <summary>Creates a recurring payment using an existing mandate.</summary>
+    /// <summary>
+    /// Creates a recurring payment using an existing mandate. <c>metadata</c> is stored alongside
+    /// the payment at Mollie; null or empty sends no metadata field.
+    /// </summary>
     Task<PaymentResponse> CreateRecurringPaymentAsync(string customerId, string mandateId, decimal amount,
-        string currency, string description, string webhookUrl, CancellationToken ct = default);
+        string currency, string description, string webhookUrl,
+        IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
 
     /// <summary>Retrieves a payment from Mollie by ID.</summary>
     Task<PaymentResponse> GetPaymentAsync(string paymentId, CancellationToken ct = default);
 
     /// <summary>Creates a subscription in Mollie for recurring billing.</summary>
     Task<SubscriptionResponse> CreateSubscriptionAsync(string customerId, decimal amount, string currency,
-        string interval, string description, string webhookUrl, string? mandateId = null, CancellationToken ct = default);
+        string interval, string description, string webhookUrl, string? mandateId = null,
+        IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
 
     /// <summary>Retrieves a subscription from Mollie.</summary>
     Task<SubscriptionResponse> GetSubscriptionAsync(string customerId, string subscriptionId, CancellationToken ct = default);

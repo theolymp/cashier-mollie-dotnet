@@ -14,11 +14,11 @@ public interface IChargeBuilder<TKey> where TKey : IEquatable<TKey>
     IChargeBuilder<TKey> WithDescription(string description);
 
     /// <summary>
-    /// Stores metadata in a private field that nothing reads — it reaches neither Mollie nor the
-    /// payment row. "For your own reference" was the previous wording and it was wrong: there is
-    /// nowhere to refer to it from. Measured: the backing field has one assignment and no read.
+    /// Attaches metadata to the charge. Sent to Mollie with the payment — the direct one when the
+    /// owner has a mandate, the checkout one when they do not — and returned whenever that payment
+    /// is fetched. Up to and including 0.4.0 this was stored in a field nothing read.
     /// </summary>
-    /// <param name="metadata">Key-value pairs. Stored, never used.</param>
+    /// <param name="metadata">Key-value pairs, sent to Mollie as JSON.</param>
     IChargeBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);
 
     /// <summary>

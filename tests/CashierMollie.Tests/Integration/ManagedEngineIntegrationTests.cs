@@ -33,7 +33,7 @@ public class ManagedEngineIntegrationTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<ManagedBillingEngine<string>>.Instance);
+        _engine = new ManagedBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, NullLogger<ManagedBillingEngine<string>>.Instance, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher));
         _cashier = new CashierService<string>(_db, _engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
     }
 
@@ -120,7 +120,7 @@ public class ManagedEngineIntegrationTests : IDisposable
 
         _mollieClient.CreateRecurringPaymentAsync(
             "cst_managed2", "mdt_managed2", Arg.Any<decimal>(),
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         // 5. Process due items
@@ -190,7 +190,7 @@ public class ManagedEngineIntegrationTests : IDisposable
 
         _mollieClient.CreateRecurringPaymentAsync(
             "cst_managed3", "mdt_managed3", Arg.Any<decimal>(),
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         // 6. Process due items — should apply the pending plan swap
@@ -243,7 +243,7 @@ public class ManagedEngineIntegrationTests : IDisposable
         mockPayment.Status = "pending";
         _mollieClient.CreateRecurringPaymentAsync(
             "cst_qty", "mdt_qty", Arg.Any<decimal>(),
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
             .Returns(mockPayment);
 
         await _engine.ProcessDueItemsAsync();
@@ -251,10 +251,10 @@ public class ManagedEngineIntegrationTests : IDisposable
         // Charged one seat, not ten.
         await _mollieClient.Received(1).CreateRecurringPaymentAsync(
             "cst_qty", "mdt_qty", 9.99m,
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
         await _mollieClient.DidNotReceive().CreateRecurringPaymentAsync(
             "cst_qty", "mdt_qty", 99.90m,
-            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            "EUR", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
 
         // And the next cycle carries the old quantity forward, not the subscription's.
         var nextItem = await _db.OrderItems
