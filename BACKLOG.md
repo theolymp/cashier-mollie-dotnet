@@ -45,10 +45,26 @@ of a subscription that does not exist.
 A and B both depend on plan price resolution (below), which is why neither is a small change. The
 decision is not this repository's to take alone: it changes what a consumer's subscription means.
 
-**Standing position, 2026-10-26: D.** The options go to the maintainer when recurring billing is
-actually scheduled; until then the gap is documented and nothing else changes. So: **do not
-implement A, B or C on your own initiative** — each is a breaking change for anyone on the default
-engine, and the reason this entry exists is that the previous silence read as a working feature.
+**Decision, 2026-10-26: A is the target — and it is not buildable yet.** The maintainer chose
+"create the Mollie subscription at Mollie", with an explicit condition attached: *prices,
+subscriptions and bundles are not settled.* Those are product decisions upstream of this library,
+and A cannot be written without them — the call needs an **amount** and an **interval**, which is
+the plan→price resolution below, which in turn needs a price list that does not exist.
+
+So: **do not implement A on your own initiative either.** The gate is not a date and not a
+judgement call to be made inside this repository; it is whether that pricing exists. B and C are
+no longer directions anyone is holding open — recorded above so the next reader sees what was
+weighed, not so they can be picked up again.
+
+Until the gate opens the code stays exactly where D left it, documented and unchanged. **That is
+an interim state, not the decision** — earlier the same day the standing position was D itself,
+with no option chosen, and only that part has changed.
+
+**When this stops being a backlog item:** it is documentation-only for exactly as long as no
+consumer bills for real on the default engine. The moment one configures an API key and takes
+money there, the same gap is a **release blocker** rather than an open item — and nothing in this
+file will announce that change, because the code will not have moved. Re-read this entry whenever
+billing is switched on anywhere, not when a date passes.
 
 
 ### Proration is not implemented, and says so loudly
