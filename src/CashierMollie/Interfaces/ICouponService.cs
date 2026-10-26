@@ -16,6 +16,12 @@ public interface ICouponService<TKey> where TKey : IEquatable<TKey>
     Task RevokeAsync(IBillable<TKey> owner, string subscriptionName = "default",
         CancellationToken ct = default);
 
-    /// <summary>Gets the appropriate handler for a coupon's handler type.</summary>
+    /// <summary>
+    /// Gets the appropriate handler for a coupon's handler type. This is the ONLY route to a
+    /// discount calculation: nothing inside the library calls a handler, so if you never call
+    /// this, no coupon ever changes an amount.
+    /// </summary>
+    /// <param name="handlerType">"percentage" or "fixed". Throws for anything else, including an
+    /// empty string.</param>
     ICouponHandler GetHandler(string handlerType);
 }

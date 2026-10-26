@@ -49,7 +49,12 @@ public class ConfigCouponRepository : ICouponRepository
         var coupon = new Coupon
         {
             Code = code,
-            HandlerType = couponSection["HandlerType"] ?? "percentage",
+            // Not `?? "percentage"`: IConfiguration returns "" for a key that is present and
+            // empty, so the coalesce never fires and the handler lookup then throws on "". An
+            // empty value is the same mistake as a missing one, so treat it as missing.
+            HandlerType = string.IsNullOrWhiteSpace(couponSection["HandlerType"])
+                ? "percentage"
+                : couponSection["HandlerType"]!,
             Times = int.TryParse(couponSection["Times"], out int times) ? times : 0,
             Context = couponSection.GetSection("Context").GetChildren()
                 .ToDictionary(c => c.Key, c => c.Value ?? ""),

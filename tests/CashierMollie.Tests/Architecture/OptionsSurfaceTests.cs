@@ -8,14 +8,26 @@ namespace CashierMollie.Tests.Architecture;
 
 /// <summary>
 /// A settable option THIS LIBRARY never reads may still be a silent no-op: the value is accepted, the
-/// documentation describes an effect, and nothing happens. This class has now bitten three times —
-/// SwapOptions.Prorate (made to throw in eb8cd7f), seven never-dispatched events, and the two
-/// settings below — so it is worth a detector rather than another round of noticing.
+/// documentation describes an effect, and nothing happens. This class has now bitten five times —
+/// SwapOptions.Prorate (made to throw in eb8cd7f), seven never-dispatched events, the three
+/// settings below, and CouponCode/Metadata — so it is worth a detector rather than another round of
+/// noticing.
+///
+/// THE DETECTOR ITSELF LET TWO THROUGH, and the reason is worth more than the finding: it counted
+/// every MENTION outside a comment as a read. CouponCode and Metadata each have exactly one mention
+/// in production code, and it is the builder WRITING the value on its way to an engine that ignores
+/// it — so a write certified the option as read, for months, in the very test built to catch silent
+/// no-ops. A read goes through an instance, so the pattern now requires the dot and rejects a
+/// following single '=' (== stays a read). <see cref="ReadDetector_IgnoresWritesAndDeclarations"/>
+/// pins that, because the fix is worthless if someone later "simplifies" the pattern back.
 ///
 /// Unlike <see cref="PlannedEventsTests"/>, this scan MUST ignore comments. A comment mentioning an
 /// option would credit it with a read site and grant a silent all-clear, which is the dangerous
 /// direction; over there a comment mention produces a loud false alarm instead. The stripper
-/// therefore has its own test below, against constructed input.
+/// therefore has its own test below, against constructed input. This is not hypothetical: the
+/// sentences added to ISubscriptionBuilder to say that CouponCode and Metadata are unread MENTION
+/// both names with a dot, and without the stripper they would have credited both as read — the
+/// documentation of the gap would have hidden the gap.
 ///
 /// Scanning is by NAME, so an option name shared by two option types is credited to both. Prorate
 /// is exactly that case (SwapOptions reads it to throw, SubscriptionOptions does not read it at
@@ -32,7 +44,7 @@ public class OptionsSurfaceTests
     /// <see cref="EverySettableOption_IsReadSomewhere"/>.
     /// </summary>
     private static readonly string[] UnreadOptions =
-        ["ApiKey", "Locale", "OrderNumberFormat"];
+        ["ApiKey", "Locale", "OrderNumberFormat", "CouponCode", "Metadata"];
 
     // Deliberately scoped to this library. An earlier marker read "nothing reads this setting" —
     // a claim about the world drawn from a measurement of one repository. A consumer binds this
@@ -57,6 +69,27 @@ public class OptionsSurfaceTests
         Assert.DoesNotContain("OrderNumberFormat", stripped, StringComparison.Ordinal);
         Assert.DoesNotContain("Currency", stripped, StringComparison.Ordinal);
         Assert.DoesNotContain("ApiKey", stripped, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadDetector_IgnoresWritesAndDeclarations()
+    {
+        // Constructed input, not the repository: a fixture built from today's sources would be the
+        // fixture of today. Each line below is a shape that actually occurs in src/.
+        Assert.Empty(Matches("CouponCode", "            CouponCode = _coupon,"));          // initializer write
+        Assert.Empty(Matches("CouponCode", "public record CouponApplied<TKey>(string CouponCode, int X);"));
+        Assert.Empty(Matches("Quantity", "        subscription.Quantity = quantity;"));     // member write
+        Assert.Empty(Matches("WebhookUrl", "    public string WebhookUrl { get; set; } = string.Empty;"));
+
+        // Known-positives: the shapes that ARE reads must still be found, or the fix would have
+        // traded a silent all-clear for a silent alarm.
+        Assert.NotEmpty(Matches("TrialDays", "        if (options.TrialDays > 0)"));
+        Assert.NotEmpty(Matches("Prorate", "        if (options?.Prorate == true)"));       // == is a read
+        Assert.NotEmpty(Matches("Quantity", "        int current = (int)(sub.Quantity ?? 1);"));
+        Assert.NotEmpty(Matches("BillingEngine", "        if (opts.BillingEngine == BillingEngineType.Managed)"));
+
+        static List<string> Matches(string name, string line) =>
+            FilesReading(name, new Dictionary<string, string> { ["f.cs"] = line });
     }
 
     [Fact]
@@ -112,7 +145,16 @@ public class OptionsSurfaceTests
 
         foreach (string name in UnreadOptions)
         {
-            string member = $"P:CashierMollie.CashierMollieOptions.{name}";
+            // Resolved from the declaring type rather than hardcoded to CashierMollieOptions: two
+            // of the five unread options live on SubscriptionOptions, and a hardcoded prefix would
+            // have reported them as "missing from the XML documentation" instead of checking them.
+            List<Type> declaring = OptionTypes
+                .Where(t => t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance) is not null)
+                .ToList();
+            Assert.True(declaring.Count == 1,
+                $"'{name}' is declared on {declaring.Count} option types; the marker check needs exactly one.");
+
+            string member = $"P:{declaring[0].FullName}.{name}";
             XElement? element = doc.Descendants("member")
                 .FirstOrDefault(m => (string?)m.Attribute("name") == member);
 
@@ -210,15 +252,29 @@ public class OptionsSurfaceTests
             .Distinct()
             .ToList();
 
+    /// <summary>
+    /// Files that READ the option — not files that mention it. Three kinds of mention are not
+    /// reads: a comment (stripped), an assignment, and a declaration. Requiring the instance dot
+    /// excludes declarations and object-initializer writes in one stroke; the lookahead excludes
+    /// member-access writes (<c>x.Foo = 1</c>) while keeping comparisons (<c>x.Foo == 1</c>) and
+    /// compound assignments, which do read.
+    ///
+    /// The old filename filter for "Options.cs" is gone: it existed to skip the declaration, which
+    /// no longer matches anyway, and it blinded the scan to a genuine read inside the declaring
+    /// file. One fewer special case, and nothing depends on it — every live option has a dotted
+    /// read elsewhere, measured.
+    /// </summary>
     private static List<string> FilesReading(string name, Dictionary<string, string> sources)
     {
-        Regex pattern = new($@"\b{Regex.Escape(name)}\b", RegexOptions.CultureInvariant);
+        Regex pattern = ReadPattern(name);
         return sources
-            .Where(kv => !kv.Key.Contains("Options.cs", StringComparison.Ordinal))
             .Where(kv => pattern.IsMatch(StripComments(kv.Value)))
             .Select(kv => kv.Key)
             .ToList();
     }
+
+    private static Regex ReadPattern(string name) =>
+        new($@"\.{Regex.Escape(name)}\b(?!\s*=[^=])", RegexOptions.CultureInvariant);
 
     private static string StripComments(string source)
     {

@@ -13,8 +13,12 @@ public interface IChargeBuilder<TKey> where TKey : IEquatable<TKey>
     /// <param name="description">The payment description.</param>
     IChargeBuilder<TKey> WithDescription(string description);
 
-    /// <summary>Attaches arbitrary metadata to the charge for your own reference.</summary>
-    /// <param name="metadata">Key-value pairs of metadata.</param>
+    /// <summary>
+    /// Stores metadata in a private field that nothing reads — it reaches neither Mollie nor the
+    /// payment row. "For your own reference" was the previous wording and it was wrong: there is
+    /// nowhere to refer to it from. Measured: the backing field has one assignment and no read.
+    /// </summary>
+    /// <param name="metadata">Key-value pairs. Stored, never used.</param>
     IChargeBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);
 
     /// <summary>

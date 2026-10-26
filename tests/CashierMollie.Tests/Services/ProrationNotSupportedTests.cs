@@ -16,6 +16,13 @@ namespace CashierMollie.Tests.Services;
 /// dropping it, because a silently inert money flag is the one state indistinguishable from a
 /// working implementation -- and the XML doc on <see cref="SwapOptions.Prorate"/> promised a credit
 /// that never materialised.
+///
+/// The guards first sat only at the two documented consumer entry points. That left the engines:
+/// <c>IBillingEngine</c> is public and registered in DI, so a caller reaching one directly kept the
+/// old silence, and CREATE was unguarded on both -- the flag lives on SubscriptionOptions, which is
+/// the create options record. Measured before closing it: neither consumer in the fleet calls an
+/// engine directly, so the new throw is inert today and the change is a completion of eb8cd7f
+/// rather than a new decision.
 /// </summary>
 public class ProrationNotSupportedTests : IDisposable
 {
@@ -97,6 +104,66 @@ public class ProrationNotSupportedTests : IDisposable
         var result = await _cashier.SwapAsync(_owner, "default", "team", options: null);
 
         Assert.Equal("team", result.Plan);
+    }
+
+    // --- the engines themselves: public interface, registered in DI ---
+
+    private MollieBillingEngine<string> NativeEngine() =>
+        new(_db, Substitute.For<IMollieClientService>(), Substitute.For<ICashierEventDispatcher>(),
+            Options.Create(new CashierMollieOptions { Currency = "EUR" }));
+
+    private ManagedBillingEngine<string> ManagedEngine() =>
+        new(_db, Substitute.For<IMollieClientService>(), Substitute.For<ICashierEventDispatcher>(),
+            Options.Create(new CashierMollieOptions { Currency = "EUR" }),
+            NullLogger<ManagedBillingEngine<string>>.Instance);
+
+    [Fact]
+    public async Task NativeEngine_CreateWithProrateTrue_Throws()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            NativeEngine().CreateSubscriptionAsync(_owner, "default", "pro",
+                new SubscriptionOptions { Prorate = true }));
+    }
+
+    [Fact]
+    public async Task ManagedEngine_CreateWithProrateTrue_Throws()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            ManagedEngine().CreateSubscriptionAsync(_owner, "default", "pro",
+                new SubscriptionOptions { Prorate = true }));
+    }
+
+    [Fact]
+    public async Task NativeEngine_SwapWithProrateTrue_Throws()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            NativeEngine().SwapPlanAsync(new Subscription<string> { OwnerId = "user-1", Plan = "pro" },
+                "team", new SwapOptions { Prorate = true }));
+    }
+
+    [Fact]
+    public async Task ManagedEngine_SwapWithProrateTrue_Throws()
+    {
+        await Assert.ThrowsAsync<NotSupportedException>(() =>
+            ManagedEngine().SwapPlanAsync(new Subscription<string> { OwnerId = "user-1", Plan = "pro" },
+                "team", new SwapOptions { Prorate = true }));
+    }
+
+    [Fact]
+    public async Task ManagedEngine_SwapWithProrateFalse_StillSwaps()
+    {
+        // Known-negative for the engine guard: it must not swallow the working path. Without this,
+        // a guard that threw unconditionally would pass every test above.
+        var sub = new Subscription<string>
+        {
+            OwnerId = "user-1", Name = "default", Plan = "pro", Status = SubscriptionStatus.Active,
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        var result = await ManagedEngine().SwapPlanAsync(sub, "team", new SwapOptions { Prorate = false });
+
+        Assert.Equal("team", result.NextPlan);
     }
 
     public void Dispose()

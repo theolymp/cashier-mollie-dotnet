@@ -75,7 +75,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
 - **Quantity management** -- update, increment, and decrement `Subscription.Quantity`. ⚠️ **Not seat-based billing**: no billing path reads that field, so changing it does not change what is charged
-- **Coupon system** -- fixed and percentage-based discounts with pluggable `ICouponRepository` and `ICouponHandler`
+- **Coupon system** -- fixed and percentage-based discounts with pluggable `ICouponRepository` and `ICouponHandler`. ⚠️ **No billing path applies a discount**: the handler is a calculator you call yourself, and `WithCoupon()` on the subscription builder is inert -- see [Coupons](#coupons)
 - **Credit / balance system** -- add, apply, and check account credit balances per currency
 - **One-off charges** -- fluent `IChargeBuilder` for single payments with or without mandate
 - **Refund system** -- partial and complete refunds via Mollie with local tracking
@@ -467,27 +467,64 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
 
 ## Coupons
 
-CashierMollie includes a coupon system with fixed and percentage-based discounts.
+CashierMollie records coupon redemptions and can calculate a discount. It does **not** subtract one
+from anything.
+
+> ⚠️ **Read this before offering a coupon.** Three measured facts, 2026-10-26:
+>
+> 1. **`WithCoupon()` on the subscription builder does nothing at all.** It stores the code in
+>    `SubscriptionOptions.CouponCode`, which has zero read sites -- neither billing engine mentions
+>    coupons. The subscription is created at full price, no redemption is recorded, no event is
+>    raised and no error is returned. It is kept only because removing it would break a published
+>    API.
+> 2. **`CalculateDiscount` is never called by this library.** Its only two references are its two
+>    implementations. It is a calculator for you to invoke.
+> 3. **Nothing reduces an amount.** Redeeming a coupon writes a `cashier_redeemed_coupons` row and
+>    raises `CouponApplied`. Applying the money effect is yours: on the Managed engine via
+>    `OrderItem.UnitPrice`, on MollieNative not at all, because Mollie charges its own fixed amount.
+>
+> This is the same shape as the credit system: a ledger, not a settlement.
 
 ```csharp
-// Validate and redeem a coupon
 var couponService = serviceProvider.GetRequiredService<ICouponService<string>>();
-await couponService.ValidateAsync("LAUNCH10");
-await couponService.RedeemAsync("LAUNCH10", subscription, user.Id);
+
+// Validate (throws CashierException if the code is unknown)
+Coupon coupon = await couponService.ValidateAsync("LAUNCH10", user);
+
+// Redeem for a named subscription -- requires that the subscription already exists.
+// Records the redemption; does NOT change what is charged.
+await couponService.RedeemAsync(user, "LAUNCH10", "default");
+
+// Compute the discount yourself, then apply it to your own pricing.
+decimal discount = couponService.GetHandler(coupon.HandlerType)
+    .CalculateDiscount(coupon, amount: 29.00m, quantity: 1);
 ```
 
-Configure coupons in `appsettings.json` (default `ConfigCouponRepository`) or register your own `ICouponRepository`:
+Configure coupons in `appsettings.json` (default `ConfigCouponRepository`) or register your own
+`ICouponRepository`. The section is an **object keyed by coupon code**, and the reader looks for
+`HandlerType`, `Times` and `Context` -- the keys below are the ones the code actually reads:
 
 ```json
 {
   "CashierMollie": {
-    "Coupons": [
-      { "Code": "LAUNCH10", "Type": "percentage", "Value": 10, "MaxRedemptions": 100 },
-      { "Code": "5OFF", "Type": "fixed", "Value": 5.00 }
-    ]
+    "Coupons": {
+      "LAUNCH10": {
+        "HandlerType": "percentage",
+        "Times": 3,
+        "Context": { "percentage": "10" }
+      },
+      "FLAT5": {
+        "HandlerType": "fixed",
+        "Times": 0,
+        "Context": { "amount": "5.00", "currency": "EUR" }
+      }
+    }
   }
 }
 ```
+
+`HandlerType` must be `percentage` or `fixed`; anything else -- including an empty string -- throws
+when the handler is resolved. `Times` is the number of billing cycles the redemption is recorded for.
 
 ## Credits
 
@@ -967,11 +1004,11 @@ Fluent builder for creating subscriptions with optional configuration.
 ```csharp
 public interface ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
 {
-    ISubscriptionBuilder<TKey> WithCoupon(string coupon);
+    ISubscriptionBuilder<TKey> WithCoupon(string coupon);   // INERT: stored, never read
     ISubscriptionBuilder<TKey> TrialDays(int days);
-    ISubscriptionBuilder<TKey> WithProration();
+    ISubscriptionBuilder<TKey> WithProration();             // THROWS: not implemented
     ISubscriptionBuilder<TKey> WithMandateOnly();
-    ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);
+    ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);  // INERT: never sent
     Task<SubscriptionResult<TKey>> CreateAsync(CancellationToken ct = default);
 }
 ```
@@ -1014,7 +1051,7 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [x] **Subscription lifecycle** -- create, cancel, resume, swap with grace periods and trials
 - [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
 - [x] **Dual billing engine** -- MollieNative and Managed with background processing
-- [x] **Coupon / discount system** -- fixed and percentage-based discounts with configurable handlers
+- [x] **Coupon / discount system** -- redemption tracking and discount *calculation* with configurable handlers, with the caveat that no billing path applies a discount and `WithCoupon()` on the builder is inert; `CalculateDiscount` has no call site in the library
 - [x] **Quantity management** -- increment, decrement, and update subscription quantities
 - [x] **Credit / balance system** -- per-user account credit management
 - [x] **One-off charges** -- single payments with fluent builder

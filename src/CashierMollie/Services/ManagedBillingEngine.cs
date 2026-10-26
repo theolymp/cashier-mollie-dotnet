@@ -57,6 +57,8 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         IBillable<TKey> owner, string name, string plan,
         SubscriptionOptions options, CancellationToken ct = default)
     {
+        ProrationSupport.ThrowIfRequested(options.Prorate);
+
         // Ensure Mollie customer exists
         if (string.IsNullOrEmpty(owner.MollieCustomerId))
         {
@@ -179,6 +181,8 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     public async Task<Subscription<TKey>> SwapPlanAsync(Subscription<TKey> subscription,
         string newPlan, SwapOptions? options = null, CancellationToken ct = default)
     {
+        ProrationSupport.ThrowIfRequested(options?.Prorate == true);
+
         string oldPlan = subscription.Plan;
 
         // ManagedEngine: set NextPlan for next-cycle swap by default.

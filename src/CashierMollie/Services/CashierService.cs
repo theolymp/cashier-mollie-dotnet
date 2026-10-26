@@ -81,10 +81,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     public async Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan,
         SwapOptions? options = null, CancellationToken ct = default)
     {
-        if (options?.Prorate == true)
-        {
-            throw new NotSupportedException(ProrationSupport.NotImplementedMessage);
-        }
+        ProrationSupport.ThrowIfRequested(options?.Prorate == true);
 
         var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
         return await _engine.SwapPlanAsync(sub, newPlan, options, ct);

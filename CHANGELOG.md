@@ -25,6 +25,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   indistinguishable from a clean one.
 
 ### Changed
+- **Proration now fails at every entry point, not just the documented two.** Both billing engines
+  guard `CreateSubscriptionAsync` and `SwapPlanAsync`, so a caller who injects the public,
+  DI-registered `IBillingEngine` no longer gets the old silence. Create is guarded as well as swap
+  for the same reason `WithProration()` throws on the create path: the flag lives on
+  `SubscriptionOptions`, and a caller who sets it believes proration is enabled for that
+  subscription. The message and the condition now live in one place, called from five sites, so
+  neither can drift. Measured before the change: neither known consumer calls an engine directly,
+  so this completes the previous decision rather than taking a new one.
+- **The coupon and metadata paths are documented as inert, in the package itself.** Measured
+  2026-10-26: `SubscriptionOptions.CouponCode` and `SubscriptionOptions.Metadata` each have exactly
+  one site in production code and it is the builder *writing* the value; nothing reads either.
+  `WithCoupon()` therefore creates the subscription at full price with no redemption, no event and
+  no error, `WithMetadata()` drops the dictionary (no request this library sends carries metadata),
+  and `IChargeBuilder.WithMetadata` stores into a field nothing reads -- its previous summary said
+  "for your own reference", and there was nowhere to refer to it from. `ICouponHandler.CalculateDiscount`
+  has no call site either: it is a calculator the consumer invokes, so no coupon reduces any amount.
+  All of this is now stated on the members, which ship in the package and so appear in IntelliSense.
+  **Not changed:** these methods still accept and ignore their arguments. Making them throw, as
+  `WithProration()` does, is a breaking change on a published API and therefore a decision, not a
+  repair -- the same reason the swap and quantity no-ops are still accepted.
+- `SwapOptions.Prorate` no longer documents the credit it stopped computing: the summary still read
+  "calculates proration credit for unused time on the current plan" one commit after the property
+  began to throw.
+
+### Fixed
+- **The options detector counted a write as a read, and had certified two silent no-ops for
+  months.** `OptionsSurfaceTests` exists to catch settable options nothing honours; its scan matched
+  every mention outside a comment, so the builder's `CouponCode = _coupon` -- a *write*, on its way
+  to an engine that ignores the field -- passed as evidence that something read it. The pattern now
+  requires an instance dot and rejects a following single `=`, keeping `==` and compound assignment
+  as reads, and a new test pins the distinction against constructed input. Verified by sabotage:
+  with the old pattern the suite stays green while `CouponCode` is undeclared, with the new one it
+  fails -- same test, two patterns. The comment stripper earned its keep in the same change: the
+  sentences added to say that these options are unread *mention both names with a dot*, and without
+  stripping they would have credited them as read.
+- The coupon documentation in the README did not match the code in three ways: the example called
+  `ValidateAsync`/`RedeemAsync` with the wrong arity and argument order, the `Coupons` configuration
+  was shown as a JSON array when the reader treats it as an object keyed by coupon code, and the
+  documented fields (`Type`, `Value`, `MaxRedemptions`) are read nowhere -- the reader looks for
+  `HandlerType`, `Times` and `Context`. The example as published could not compile and the
+  configuration as published could not load.
+- `ConfigCouponRepository` no longer uses `?? "percentage"` on a configuration key. `IConfiguration`
+  returns an empty string for a key that is present and empty, so the coalesce never fired and the
+  handler lookup then threw on `""`; an empty value is now treated as a missing one.
+
 - **Breaking: `WithProration()` and a swap with `SwapOptions { Prorate = true }` now throw
   `NotSupportedException` instead of being accepted and silently ignored.** Measured 2026-10-04:
   `Prorate` had five write sites and **zero** read sites -- neither billing engine ever looked at
@@ -32,10 +77,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   unused time on the current plan". A caller therefore received no credit and no error, which is
   the one state indistinguishable from a working implementation. Proration itself is still not
   implemented; this change only stops the library from claiming otherwise.
-  **Not covered:** `IBillingEngine` is public and DI-registered, so a consumer who injects it and
-  calls `CreateSubscriptionAsync`/`SwapPlanAsync` directly with `Prorate = true` still gets
-  silence. The two guards sit at the documented consumer entry points (the fluent builder and
-  `ICashierService.SwapAsync`), not inside the engines.
+  **Closed since:** the engines guard it too -- see "proration now fails at every entry point"
+  below. The guards no longer sit only at the documented consumer entry points.
   **Before proration is built,** the 13 `decimal` columns need an explicit precision: without
   `HasPrecision` they resolve per provider -- `numeric` on PostgreSQL (exact), `TEXT` on SQLite,
   `decimal(18,2)` on SQL Server. Proration produces fractional cents, so the same code would
