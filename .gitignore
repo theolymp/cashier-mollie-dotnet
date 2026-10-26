@@ -42,8 +42,11 @@ coverage/
 CLAUDE.md
 docs/
 .serena/
-# `dotnet skills install --auto` vendors the Microsoft skill catalog here.
-# Re-creatable with one command, and three of the six SKILL.md declare no
-# license -- so it is not published from this repository. Run the command
-# locally instead of expecting a clone to carry it.
+# `dotnet skills` vendors the Microsoft skill catalog into an agent root.
+# Claude Code reads `.claude/skills/`; `.github/skills/` is where the tool
+# auto-detects to in this repo, so both paths can hold a copy.
+# Not published from here: the auto-state file records an absolute local path,
+# and several SKILL.md declare no license at all. Re-creatable with one
+# command, so run it locally instead of expecting a clone to carry it.
 .github/skills/
+.claude/
