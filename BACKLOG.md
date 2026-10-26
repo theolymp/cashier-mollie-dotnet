@@ -45,6 +45,11 @@ of a subscription that does not exist.
 A and B both depend on plan price resolution (below), which is why neither is a small change. The
 decision is not this repository's to take alone: it changes what a consumer's subscription means.
 
+**Standing position, 2026-10-26: D.** The options go to the maintainer when recurring billing is
+actually scheduled; until then the gap is documented and nothing else changes. So: **do not
+implement A, B or C on your own initiative** — each is a breaking change for anyone on the default
+engine, and the reason this entry exists is that the previous silence read as a working feature.
+
 
 ### Proration is not implemented, and says so loudly
 
