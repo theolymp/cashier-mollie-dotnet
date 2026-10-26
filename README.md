@@ -1009,7 +1009,7 @@ All settings are bound from the `CashierMollie` section in your configuration:
 
 ## Roadmap
 
-CashierMollie v0.3.0 covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:
+CashierMollie covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:
 
 - [x] **Subscription lifecycle** -- create, cancel, resume, swap with grace periods and trials
 - [x] **Webhook subscription activation** -- activate pending subscriptions after successful first payment
