@@ -51,6 +51,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   must **not** emit, and the hand-resolution table is now exercised end to end rather than only per
   component -- including the vendor EULA in the test tree, which passes solely on scope and now has
   to say so.
+- The licence gate's never-executed paths are now covered, found by tracing the self-test rather
+  than by deleting branches -- the two instruments answer different questions. The three loader
+  guards for a missing, empty or unparseable BOM had never run, and each now has to name its own
+  cause; the UNKNOWN severity branch had never run either. One guard in the expression splitter is
+  unreachable by construction and is marked as such instead of being described as covered.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job

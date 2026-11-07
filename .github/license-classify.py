@@ -255,6 +255,19 @@ def classify(expression, resolved=False):
     for branch in branches:
         atoms = [a for a in re.split(r"\s+AND\s+", branch, flags=re.IGNORECASE) if a.strip()]
         if not atoms:
+            # UNREACHABLE as the splitter stands, and kept deliberately. `cleaned` is stripped and
+            # non-empty, and the OR delimiter requires whitespace on both sides and consumes it
+            # greedily, so a split can never yield an empty piece: after one match the next
+            # character is non-whitespace, so the delimiter cannot match again immediately, and a
+            # leading or trailing operator loses its whitespace to strip() and never matches at
+            # all. Measured 2026-11-07 by tracing this line against dangling, doubled, empty-paren
+            # and leading-operator expressions -- none reach it.
+            #
+            # It stays because the line below calls min() over a generator, which raises ValueError
+            # on an empty one: the guard costs nothing and the crash it prevents would arrive via a
+            # regex change, which is exactly the edit that would break the invariant. Marked rather
+            # than deleted so it reads as a decision, and marked rather than "covered" because a
+            # test that cannot reach it cannot cover it.
             branch_ranks.append(_rank(UNKNOWN))
             continue
         # Everything in a branch applies at once, so the strongest atom decides the branch.
@@ -464,6 +477,16 @@ def self_test():
 
     # Known-positive: the classes must actually fire.
     expect("MIT", PERMISSIVE_NAME)
+    # Malformed OR shapes: a dangling operator, empty parentheses, a doubled operator. These pin
+    # that the splitter degrades to the readable operand instead of throwing or returning UNKNOWN.
+    # They do NOT reach the empty-branch guard in classify() -- see the comment there; a first
+    # version of this block claimed they did, which was wrong and is why the claim now names what
+    # it was measured with.
+    expect("MIT OR ", PERMISSIVE_NAME)
+    expect("MIT OR ()", PERMISSIVE_NAME)
+    expect("GPL-3.0-only OR ()", "GPL")
+    expect("MIT  OR   OR  Apache-2.0", PERMISSIVE_NAME)
+    expect(" OR MIT", PERMISSIVE_NAME)
     expect("Apache-2.0", PERMISSIVE_NAME)
     expect("BSD-3-Clause", PERMISSIVE_NAME)
     expect("PostgreSQL", PERMISSIVE_NAME)
@@ -571,6 +594,12 @@ def self_test():
     # comfortable repair -- routing every subset to NOT MEASURED -- which is a guard that
     # never lies and also never decides anything.
     import tempfile as _tempfile
+    def _write_raw(text):
+        handle = _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        handle.write(text)
+        handle.close()
+        return handle.name
+
     def _write(components):
         handle = _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump({"bomFormat": "CycloneDX", "components": components}, handle)
@@ -653,6 +682,13 @@ def self_test():
          pad + [_unlicensed("Microsoft.Data.SqlClient.SNI.runtime", "6.0.2")], EXIT_STOP,
          ("::error::STOP", "Microsoft.Data.SqlClient.SNI.runtime"), (),
          "a hand-resolved vendor EULA that IS shipped"),
+        # An UNKNOWN shipped component. Traced 2026-11-07: the severity line for UNKNOWN had
+        # never executed, so the tier that exists precisely for "nobody has read this yet" was
+        # reported by an untested branch. A component declaring nothing at all is the usual way to
+        # arrive here.
+        ([_unlicensed("mystery", "1")], pad + [_unlicensed("mystery", "1")], EXIT_CASE_BY_CASE,
+         ("cannot be named, so nobody has read it yet", "<none declared>", "mystery"), (),
+         "a shipped component that declares no licence at all"),
         # THE BOM WINS. A hand resolution may only ever replace UNKNOWN; if it could overrule a
         # declared expression it would be a way to silence a real finding, which is the opposite of
         # what the table is for. This component has a hand entry saying Apache-2.0 and a BOM
@@ -737,6 +773,32 @@ def self_test():
                             % (document, "rejected a valid BOM" if should_fail is False
                                else "accepted an unusable BOM"))
 
+    # The three file-level failures, and the cause each one must NAME. Traced 2026-11-07 by
+    # recording which lines the self-test executes: all three of these raises had never run. They
+    # are the guards this gate leans on hardest -- "I could not read it" must never be reportable
+    # as "I found nothing" -- and they had been checked by hand once and never pinned. Naming the
+    # cause matters as much as the exit code, because a missing file, an empty one and a truncated
+    # one have three different fixes and only the message tells them apart.
+    absent = _write_raw("")
+    os.unlink(absent)
+    for path, phrase, case in (
+        (absent, "does not exist", "a BOM that is not there"),
+        (_write_raw(""), "is empty", "a zero-byte BOM"),
+        (_write_raw('{"bomFormat": "CycloneDX", "compon'), "not readable JSON",
+         "a truncated BOM"),
+        (_write_raw('"a string, which is valid JSON"'), "top level", "a BOM that is not an object"),
+    ):
+        try:
+            load_components(path, "self-test")
+            failures.append("load_components accepted %s" % case)
+        except NotMeasured as error:
+            if phrase not in str(error):
+                failures.append("load_components refused %s but never said %r -- the message is "
+                                "what names the fix, and these four have different ones"
+                                % (case, phrase))
+        if os.path.exists(path):
+            os.unlink(path)
+
     # Every class belongs to exactly one tier. Without this, adding a class and forgetting to tier
     # it would make it a finding that no branch reports and no exit code reflects -- the quiet
     # failure this whole file is built against.
@@ -760,6 +822,9 @@ def self_test():
 
 
 def main(argv):
+    # This branch is the one line of the file the self-test cannot reach, by construction: the flag
+    # that lets the self-test call main() is exactly what skips it. Named here so it reads as a
+    # known exception rather than an untested path nobody noticed.
     if not _SELF_TEST_RUNNING and not self_test():
         return 2
     if argv[1:] == ["--self-test"]:

@@ -563,6 +563,32 @@ before the commit by reading the mutation output instead of only its exit code: 
 that I had not added. Three commits spent on statements that stopped matching the code, and the
 fix for the third nearly shipped a fourth.
 
+**Then a second instrument, because deletion and coverage answer different questions.** Deleting a
+branch finds what no test *distinguishes*; tracing which lines a run *executes* finds what no test
+**reaches**, and a branch can be unreachable while every deletion test stays green. Traced: of 144
+executable lines outside the self-test, 13 never ran. Four were real:
+
+- **The three file-level loader guards** -- missing file, zero-byte file, unparseable JSON -- had
+  never executed. These are the guards this gate leans on hardest, the ones that keep "I could not
+  read it" from being reportable as "I found nothing", and this file's own entry above claimed they
+  were "verified by sabotage in both directions". They had been: by hand, once, and never pinned.
+  Now pinned with the cause each must **name**, because a missing, empty, truncated and non-object
+  BOM have four different fixes and only the message separates them.
+- **The UNKNOWN severity line**, so the tier that exists precisely for "nobody has read this yet"
+  was being reported by an untested branch.
+- **An unreachable guard in `classify()`.** `cleaned` is stripped and non-empty and the OR
+  delimiter requires whitespace on both sides and consumes it greedily, so a split can never yield
+  an empty piece. Kept, not deleted -- the line below it calls `min()` over a generator and would
+  raise on an empty one, and the edit that would break the invariant is a regex change. Marked as
+  unreachable rather than described as covered.
+
+And a fourth instance of the same class, mine again: the comment introducing the new malformed-OR
+cases said they reached that guard. **They do not.** A first probe appeared to confirm they did and
+was wrong -- it matched a line number across frames, and filtering by function name reversed the
+result. So the sequence now reads: a false claim about test coverage, caught; then a false claim
+about what a new test covers, caught by distrusting the instrument that confirmed it. Both were
+mine, in the same file, inside an hour, while fixing this exact class.
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
