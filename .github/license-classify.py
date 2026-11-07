@@ -64,6 +64,22 @@ PERMISSIVE = re.compile(
 UNKNOWN = "UNKNOWN"
 PERMISSIVE_NAME = "permissive"
 
+# Licenses this script cannot read out of the BOM, resolved by hand at the package itself.
+#
+# Keyed by (name, version) EXACTLY, and that is the whole design: a version bump drops out of the
+# table and the component goes back to UNKNOWN. An exception list matching by name would cover
+# versions nobody ever looked at, and silently, which is the usual way such a list stops being
+# true. This one expires by itself. Every entry that applies is printed on each run, green or not,
+# so it cannot sit here unread.
+RESOLVED_BY_HAND = {
+    ("xunit.abstractions", "2.0.3"): (
+        "Apache-2.0",
+        "read at the package itself: its nuspec and the license text it ships. Caveat worth "
+        "keeping: the license URL the package declares points at a branch rather than a tag for "
+        "this version, so the link does not establish it and the text does",
+    ),
+}
+
 # Severity order: most severe first, least severe last. Rank is an index into this list, so "the
 # strongest of these" is min() and "the weakest of these" is max() -- see the module docstring for
 # why AND takes the strongest and OR the weakest.
@@ -129,10 +145,20 @@ def component_verdict(component):
     """(class, expression-as-shown) for one component. No declaration at all is UNKNOWN."""
     expressions = license_expressions(component)
     if not expressions:
-        return UNKNOWN, "<none declared>"
-    verdicts = [(classify(e), e) for e in expressions]
-    # Several license entries on one component all apply, so the strongest decides.
-    return min(verdicts, key=lambda pair: _rank(pair[0]))
+        verdict, shown = UNKNOWN, "<none declared>"
+    else:
+        # Several license entries on one component all apply, so the strongest decides.
+        verdict, shown = min(
+            ((classify(e), e) for e in expressions), key=lambda pair: _rank(pair[0]))
+
+    # A hand resolution only ever replaces UNKNOWN. If the BOM names a license, the BOM wins: an
+    # override able to overrule a declared expression would be a way to silence a real finding,
+    # which is the opposite of what this table is for.
+    resolved = RESOLVED_BY_HAND.get((component.get("name"), component.get("version")))
+    if resolved is not None and verdict == UNKNOWN:
+        license_name = resolved[0]
+        return classify(license_name), "%s (resolved by hand, was %r)" % (license_name, shown)
+    return verdict, shown
 
 
 def load_components(path, label):
@@ -192,6 +218,17 @@ def report(shipped_path, solution_path):
     print("Measured: %d components in the solution, %d of them shipped in the package."
           % (len(solution), len(shipped_keys)))
 
+    # Printed whether or not the run is green: a resolution nobody sees is a resolution nobody
+    # rechecks, and this is the one part of the verdict resting on reading rather than parsing.
+    present = {(c.get("name"), c.get("version")) for c in solution}
+    for (name, version), (license_name, why) in sorted(RESOLVED_BY_HAND.items()):
+        if (name, version) in present:
+            print("Resolved by hand: %s@%s is %s -- %s" % (name, version, license_name, why))
+        else:
+            print("Note: the hand resolution for %s@%s matched nothing in this BOM. It is "
+                  "version-bound, so a bump makes that component UNKNOWN again until someone "
+                  "looks." % (name, version))
+
     for scope in ("shipped", "test-only"):
         for name, verdict, expression in findings[scope]:
             severity = "blocking copyleft" if verdict in BLOCKING else (
@@ -249,6 +286,11 @@ def self_test():
     expect("GPL-2.0-only OR LGPL-2.1-only", "LGPL")           # a choice between two copylefts
     expect("MIT AND GPL-3.0-only", "GPL")                     # both apply -- the strongest binds
     expect("MIT AND Totally-Made-Up-1.0", UNKNOWN)            # cannot conclude
+    # Both orders, because order-dependence is how this went wrong in another implementation of the
+    # same classifier: with no copyleft class matching, it fell through to the first result, and the
+    # same package got two different verdicts depending on how the expression happened to be
+    # written. The reassuring direction is the one people write first.
+    expect("Totally-Made-Up-1.0 AND MIT", UNKNOWN)
     expect("GPL-3.0-only OR Totally-Made-Up-1.0", UNKNOWN)    # the branch we would pick is unread
     expect("(MIT OR Apache-2.0)", PERMISSIVE_NAME)
 
@@ -263,6 +305,15 @@ def self_test():
         # Two entries both apply: MIT does not excuse the GPL one.
         ({"name": "x", "version": "1", "licenses": [{"license": {"id": "MIT"}},
                                                     {"license": {"id": "GPL-3.0-only"}}]}, "GPL"),
+        # A hand resolution applies at its exact version ...
+        ({"name": "xunit.abstractions", "version": "2.0.3",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, PERMISSIVE_NAME),
+        # ... and at no other, which is what keeps the table from covering what nobody read.
+        ({"name": "xunit.abstractions", "version": "2.0.4",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
+        # And it never overrules a license the BOM actually names.
+        ({"name": "xunit.abstractions", "version": "2.0.3",
+          "licenses": [{"license": {"id": "GPL-3.0-only"}}]}, "GPL"),
     ):
         actual = component_verdict(component)[0]
         if actual != wanted:

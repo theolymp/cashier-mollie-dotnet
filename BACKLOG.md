@@ -300,13 +300,32 @@ window rather than a record anyone can rely on for a product's support period.
 
 The data source was measured before the check was built, because the cheap route had an unmeasured
 assumption in it: whether CycloneDX fills the `licenses` field for NuGet packages at all. It does
--- 33 of 36 solution components resolve to an SPDX identifier. **Presence is not knowledge,
-though:** the other three carry `{"name": "Unknown - See URL", "url": ".../deprecateLicenseUrl"}`,
-a populated field that says nothing, because those packages declare the legacy NuGet `licenseUrl`
-instead of an expression. A check asking "does it have a licenses array" would have passed all 36.
+-- on the day it was built, 33 of 36 solution components resolved to an SPDX identifier.
+**Presence is not knowledge, though:** the rest carry
+`{"name": "Unknown - See URL", "url": ".../deprecateLicenseUrl"}`, a populated field that says
+nothing, because those packages declare the legacy NuGet `licenseUrl` instead of an expression. A
+check asking "does it have a licenses array" would have passed all 36.
 
-Measured on the day it was built: **0 copyleft anywhere, 3 unnameable** -- `Mollie.Api`
-(**shipped**), `SourceGear.sqlite3` and `xunit.abstractions` (test-only).
+**0 copyleft anywhere**, measured and still true. The unnameable ones are the live part of this
+entry and the count moves with the dependency set -- adding the SQL Server provider the same day
+took the solution from 36 components to 58 and brought `Microsoft.Data.SqlClient.SNI.runtime` in as
+a fourth. Do not read a number off this page; the run prints the current set. What is settled:
+
+- `xunit.abstractions` 2.0.3 is **Apache-2.0**, read at the package's own nuspec and shipped
+  license text. It sits in `RESOLVED_BY_HAND` in the classifier, keyed by name **and exact
+  version**, so a bump drops out of the table and goes back to UNKNOWN rather than inheriting a
+  judgement nobody made about the new version. Every applied resolution is printed on every run,
+  green or not. The caveat travels with it: the license URL the package declares points at a branch
+  rather than a tag for 2.0.3, so the link does not establish it and the text does.
+- `Mollie.Api` 4.18.0 is **still open and is the one that matters**, because it ships. It is also
+  the only thing standing between the license verdict and being able to block.
+- `SourceGear.sqlite3` and `Microsoft.Data.SqlClient.SNI.runtime` are test-only and do not gate.
+
+A hand resolution can only ever replace UNKNOWN: where the BOM names a license, the BOM wins. An
+override able to overrule a declared expression would be a way to silence a real finding, which is
+the opposite of what the table is for -- pinned in the self-test, along with both orderings of
+`<unnameable> AND MIT`, a direction that broke the same classification elsewhere by falling through
+to whichever side happened to be written first.
 
 **The license verdict is advisory, and the condition for making it blocking is a state, not a
 date:** it flips when every component in the shipped BOM carries a license the classifier can
