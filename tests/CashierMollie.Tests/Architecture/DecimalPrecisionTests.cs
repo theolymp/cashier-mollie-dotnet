@@ -24,6 +24,37 @@ namespace CashierMollie.Tests.Architecture;
 public class DecimalPrecisionTests
 {
     [Fact]
+    public void ReadmeEntityAndTableCounts_MatchTheModel()
+    {
+        // Read off the model, like the precision sweep below, rather than off the ToTable calls:
+        // the question is what EF maps, not what the source says it maps.
+        using var ctx = TestDbContextFactory.Create();
+
+        List<string> tables = ctx.Model.GetEntityTypes()
+            .Select(entity => entity.GetTableName())
+            .Where(name => name is not null)
+            .Distinct(StringComparer.Ordinal)
+            .ToList()!;
+
+        // Known-positive for the sweep: an empty model would satisfy any claim below.
+        Assert.NotEmpty(tables);
+        Assert.Contains("cashier_subscriptions", tables);
+
+        foreach (int claimed in RepositoryDocs.ClaimedCounts("tables"))
+        {
+            Assert.Equal(tables.Count, claimed);
+        }
+
+        // One entity per table here, which is what the README says; a split or an owned type would
+        // make these two numbers diverge and should then be described rather than silently kept.
+        int entities = ctx.Model.GetEntityTypes().Count();
+        foreach (int claimed in RepositoryDocs.ClaimedCounts("entities"))
+        {
+            Assert.Equal(entities, claimed);
+        }
+    }
+
+    [Fact]
     public void EveryMappedDecimalColumn_CarriesTheSameExplicitPrecision()
     {
         using var ctx = TestDbContextFactory.Create();

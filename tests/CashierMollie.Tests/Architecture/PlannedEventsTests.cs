@@ -227,6 +227,21 @@ public class PlannedEventsTests
             pinned.OrderBy(n => n, StringComparer.Ordinal).ToList());
     }
 
+    [Fact]
+    public void ReadmeEventCount_MatchesTheDeclaredSet()
+    {
+        // "23 domain events" is a count of a set the code owns, in the document that ships inside
+        // the package. It is right today -- measured, not assumed -- and it is right for the same
+        // reason the backlog's counts were right once.
+        List<string> declared = DeclaredEventNames();
+        Assert.NotEmpty(declared);
+
+        foreach (int claimed in RepositoryDocs.ClaimedCounts("domain events"))
+        {
+            Assert.Equal(declared.Count, claimed);
+        }
+    }
+
     private static List<string> DeclaredEventNames() =>
         LibraryAssembly.GetExportedTypes()
             .Where(t => t.Namespace == "CashierMollie.Events")

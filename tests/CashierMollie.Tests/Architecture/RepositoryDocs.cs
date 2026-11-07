@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -76,6 +77,44 @@ internal static class RepositoryDocs
         // against an empty expectation and pass.
         Assert.NotEmpty(names);
         return names;
+    }
+
+    /// <summary>
+    /// Every count the README claims for <paramref name="noun"/>, digits or spelled out.
+    /// </summary>
+    /// <remarks>
+    /// The README ships inside the package, and it states the size of two sets the code owns:
+    /// "23 domain events" and "7 entities across 7 tables", the last of those also written out as
+    /// "seven tables". Those are the same kind of claim that went stale in BACKLOG.md -- a count
+    /// of a set, in prose, with nothing able to fail -- except this copy reaches consumers.
+    /// <para>
+    /// Both spellings are read on purpose: pinning only the digits would leave the word form free
+    /// to drift, and it is the form a writer reaches for at the start of a sentence. Measured
+    /// against today's README, the pattern finds five claims and no false ones.
+    /// </para>
+    /// </remarks>
+    internal static List<int> ClaimedCounts(string noun)
+    {
+        string[] words =
+            ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+             "eleven", "twelve", "thirteen"];
+
+        string number = @"(\d{1,3}|" + string.Join("|", words) + ")";
+        Regex pattern = new(
+            number + @"\s+(?:\w+\s+){0,2}?" + Regex.Escape(noun) + @"\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        List<int> counts = [];
+        foreach (Match match in pattern.Matches(Read("README.md")))
+        {
+            string raw = match.Groups[1].Value;
+            int index = Array.FindIndex(words, w => w.Equals(raw, StringComparison.OrdinalIgnoreCase));
+            counts.Add(index >= 0 ? index + 1 : int.Parse(raw, CultureInfo.InvariantCulture));
+        }
+
+        // A noun the README never counts would otherwise pass every expectation vacuously.
+        Assert.NotEmpty(counts);
+        return counts;
     }
 
     internal static string Read(string relativePath)

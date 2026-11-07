@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Changed -- documentation
+- **The README's two set counts are pinned to the code.** It ships inside the package and states
+  "23 domain events" and "7 entities across 7 tables", the second also spelled out as "seven
+  tables". All five claims were measured correct; they are now compared against the declared event
+  set and the EF model on every run, in digits and in words, so the consumer-facing copy cannot
+  drift the way the backlog's counts had. No consumer-visible change today.
 - **`BACKLOG.md`'s two "declared but inert" sets are pinned by tests.** Both were stale: it called
   `OrderNumberFormat` unread and `OrderProcessed` reserved, under headings counting "Three" and
   "Seven", months after the code, the XML summaries, the README rows and the architecture tests had
