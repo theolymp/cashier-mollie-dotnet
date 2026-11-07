@@ -37,6 +37,10 @@ Thumbs.db
 ## Test Results
 TestResults/
 coverage/
+# Build output of .github/sbom-licenses.sh. The SBOM is evidence about a specific commit
+# and is regenerated from it, so a copy in the tree would be a second, silently diverging
+# answer to the same question. The run uploads it as an artifact instead.
+sbom/
 
 ## Internal working files -- deliberately not part of this public repository
 CLAUDE.md

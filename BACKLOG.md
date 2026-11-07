@@ -251,15 +251,48 @@ schema, so consumers would need a migration.
 
 ## CI and supply chain
 
-### SBOM and license checks are absent
+### SBOM and license check: built, and the license verdict is advisory
 
 Vulnerability scanning exists and **gates**: a step in the build job runs `dotnet list package
 --vulnerable`, treats an unrecognised verdict as failure, and fails the build for the shipped
 project while reporting the test project without failing. `NuGetAuditMode=all` and
 `TreatWarningsAsErrors` sit in the root `Directory.Build.props`, so the test project inherits both.
 
-Missing entirely: SBOM generation and a license check (measured 2026-10-26: zero references in
-`.github/`, with a known-positive confirming the scan reached those files).
+**SBOM and license check closed 2026-11-07.** `.github/sbom-licenses.sh` runs on every build and
+produces two CycloneDX BOMs -- the whole solution as the uploaded artifact, where completeness is
+the point, and the shipped library alone as the scope the license verdict is formed on. The split
+is the same property as the vulnerability scan's ("what ships"), not a list of exceptions, which
+would go stale with the next package. `.github/license-classify.py` classifies what is in them.
+Both BOMs are uploaded with 90-day retention, and the workflow records why that figure is a triage
+window rather than a record anyone can rely on for a product's support period.
+
+The data source was measured before the check was built, because the cheap route had an unmeasured
+assumption in it: whether CycloneDX fills the `licenses` field for NuGet packages at all. It does
+-- 33 of 36 solution components resolve to an SPDX identifier. **Presence is not knowledge,
+though:** the other three carry `{"name": "Unknown - See URL", "url": ".../deprecateLicenseUrl"}`,
+a populated field that says nothing, because those packages declare the legacy NuGet `licenseUrl`
+instead of an expression. A check asking "does it have a licenses array" would have passed all 36.
+
+Measured on the day it was built: **0 copyleft anywhere, 3 unnameable** -- `Mollie.Api`
+(**shipped**), `SourceGear.sqlite3` and `xunit.abstractions` (test-only).
+
+**The license verdict is advisory, and the condition for making it blocking is a state, not a
+date:** it flips when every component in the shipped BOM carries a license the classifier can
+name, which today is one package short. The script announces that condition on every green run
+instead of leaving it in a comment nobody reads on the day it comes true -- a date in exactly this
+area has already been missed by three weeks once in this fleet.
+
+What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
+zero-component BOM, a BOM that is not CycloneDX, a solution BOM smaller than the shipped one, an
+absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
+"nothing found". Verified by sabotage in both directions: an injected `GPL-3.0-only` component in
+the shipped BOM is reported as blocking copyleft (exit 1); a truncated BOM, a zero-component BOM
+and a missing file each exit 2; and breaking the classifier's unknown branch so that everything
+reads as permissive is caught by its own self-test, which then fails the step rather than the
+step passing with a useless verdict.
+
+Open, and not a tooling job: the three unnameable licenses have to be read off the packages
+themselves. Nothing above replaces that, and the gate will keep naming them until someone does.
 
 ### Scheduled scanning was added, and can be disabled silently
 

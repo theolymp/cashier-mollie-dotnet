@@ -23,6 +23,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   transitive). The check reads the output rather than the exit code, which is `0` either way, and
   it also fails when the output is unrecognised -- otherwise a scan that did not run is
   indistinguishable from a clean one.
+- CI generates a CycloneDX SBOM and classifies the third-party licenses in it. Two BOMs: the whole
+  solution, uploaded as the artifact because an inventory is asked for complete, and the shipped
+  library alone, which is the scope the license verdict is formed on -- a copyleft test framework
+  is not redistributed by this package. Measured before it was built: CycloneDX does populate the
+  `licenses` field for NuGet, 33 of 36 components resolving to an SPDX identifier, but presence is
+  not knowledge -- the other three declare the legacy NuGet `licenseUrl` and arrive as
+  `"Unknown - See URL"`, a populated field saying nothing. Those are reported as unknown rather
+  than folded into permissive. The license verdict is advisory and says on every clean run what
+  would have to hold for it to block; failing to reach a verdict at all -- no BOM, an empty or
+  unparseable one, zero components, or a failed classifier self-test -- is a hard failure, because
+  "I read nothing" must not be able to look like "nothing found".
 
 ### Added
 - **A coupon now changes the amount.** Given a code, both engines validate it and record the

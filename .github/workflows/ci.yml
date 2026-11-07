@@ -81,6 +81,35 @@ jobs:
       - name: Scan dependencies for known vulnerabilities
         run: .github/scan-vulnerable.sh
 
+      # Both supply-chain steps sit before Build on purpose, like the scan above. Steps inside a
+      # job are strictly ordered, so putting them in front of the compile is the only way to keep
+      # the evidence independent of whether the build or the tests pass -- a red test must not be
+      # able to suppress the SBOM, and a step that never ran is counted as present by anyone
+      # taking stock from the outside.
+      - name: Generate SBOM and check third-party licenses
+        run: .github/sbom-licenses.sh
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom/
+          # 90 days is an operational figure, not a retention period for evidence.
+          #
+          # What it is long enough for: investigating a release after the fact, holding a finding
+          # against the state of the day it was published, bisecting a regression. That is triage.
+          #
+          # What it is nowhere near long enough for -- the more important half: an SBOM is usually
+          # asked for as technical documentation covering a product's support period, which runs
+          # to years. Whoever takes these artifacts for that record does not have one; two
+          # versions of this package are live on nuget.org and their BOMs will be gone from here
+          # long before they are.
+          #
+          # So: do not shorten it because 90 looks generous, and do not lengthen it in the belief
+          # that doing so discharges a retention duty. Both would be wrong for different reasons.
+          retention-days: 90
+
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
