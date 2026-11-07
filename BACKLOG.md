@@ -359,6 +359,21 @@ is permissive. Only the sentence was wrong, and that is the worse half, because 
 what a reader acts on. Found by a peer describing a different gap in their own version of this
 check, which is the argument for saying out loud what your gate's condition is.
 
+**The flip also carries an undecided policy choice, and it is not this repository's to make.**
+"Permissive" excludes weak copyleft -- MPL, LGPL, EPL, CDDL, MS-PL -- so making the verdict
+blocking would simultaneously decide that an MPL-licensed *dependency* blocks a release of an
+MIT-licensed library. Defensible for a package that merely consumes one without modifying it, but
+it is a decision and nobody has made it. The classifier has two outcomes, permissive or a finding;
+a policy would plausibly want three, with weak copyleft as a documented case rather than a stop.
+
+Measured 2026-11-07, which is why this is a note rather than a defect: 58 components, 8 shipped,
+and **zero in any weak-copyleft class** -- known-positive, the classifier does recognise `MPL-2.0`,
+`LGPL-2.1-only` and `EPL-2.0`, so the zero is a real negative and not a blind spot. The choice
+therefore costs nothing today, which is exactly how it would reach whoever cuts a tag: unnoticed
+until the first MPL dependency arrives, then decided under time pressure by the owner of a red
+build. **It belongs answered before the flip.** Raised with root; the same mismatch was found
+independently across the fleet, between a policy with three tiers and a tool with two.
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a solution BOM smaller than the shipped one, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like

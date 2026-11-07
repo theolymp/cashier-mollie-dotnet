@@ -104,6 +104,20 @@ verdict=$?
 #
 # Today one shipped component is not permissive: Mollie.Api 4.18.0 declares the legacy NuGet
 # licenseUrl instead of an SPDX expression, so it classifies as UNKNOWN (measured 2026-11-07).
+#
+# ⚠️ AND THE FLIP CARRIES AN UNDECIDED POLICY CHOICE, which is not this script's to make.
+# "Permissive" excludes weak copyleft -- MPL, LGPL, EPL, CDDL, MS-PL -- so flipping this would
+# also decide that an MPL-licensed *dependency* blocks a release of an MIT-licensed library. For a
+# library that only consumes such a package without modifying it, that is defensible but it is a
+# decision, and nobody has made it. The classifier has two outcomes, permissive or a finding; a
+# policy would plausibly want three, with weak copyleft as a documented case rather than a stop.
+#
+# Measured 2026-11-07, which is why this is a note and not a bug: 58 components, 8 of them
+# shipped, and ZERO in any weak-copyleft class (known-positive: the classifier does recognise
+# MPL-2.0, LGPL-2.1-only and EPL-2.0 -- the zero is a real negative, not a blind spot). So the
+# choice costs nothing today, and that is exactly how it would reach the person cutting a tag:
+# unnoticed until the first MPL dependency arrives, and then decided under time pressure by
+# whoever the red build belongs to. Answer it before the flip, not at the moment it first bites.
 # Not a date, which would pass unnoticed -- the 90-day retention comment in ci.yml records a break
 # date in this fleet being missed by three weeks -- and not a judgement call, because the run
 # itself checks the condition and says so on the line below.
