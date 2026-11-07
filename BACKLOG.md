@@ -273,7 +273,28 @@ interface is the null implementation. It is a **callback** — the library owns 
 one over — so replacing it in DI with a real implementation produces no calls and no way to notice.
 Marked as such on both the interface and the null implementation.
 
-This is downstream of the order-header gap below: there is nothing to hand over.
+This was downstream of the order-header gap below: there was nothing to hand over. Since
+2026-11-07 there is -- the Managed engine writes a header and dispatches `OrderProcessed`. So the
+gap is no longer "nothing to give it"; it is that **nothing will ever call it**.
+
+**Decided 2026-11-07: do not call it, and remove the interface at the next major.** Calling
+`GenerateAsync` needs the generator in `ManagedBillingEngine`'s constructor -- a parameter on a
+public constructor, which is breaking, so it fell outside the approval that covered the header. Of
+the three ways out, the chosen one is the third:
+
+- an optional constructor parameter -- keeps the seam alive at the cost of a constructor overload
+  nobody asked for, and an interface whose default implementation does nothing;
+- a required one -- breaking, for a callback that no consumer has asked for;
+- **don't call it.** `OrderProcessed<TKey>` already carries the order id and the owner, so a
+  consumer who wants an invoice generates it from their own event handler, with their own
+  dependencies, in their own lifetime. That is strictly more capable than the callback: the handler
+  can see the whole order, the callback would have seen what we chose to pass.
+
+So `IInvoiceGenerator<TKey>`, `NullInvoiceGenerator` and their DI registration go at the next
+major. Until then they stay declared and marked as uninvoked, because **removing them is the
+breaking change and shipping them while silently believing otherwise is the bug** -- the same
+shape as `Prorate`. Grouped with the seven dispatchless events and `Locale` below; all of it waits
+for one major, rather than spending a breaking release each.
 
 ### The order header: written by the Managed engine since 2026-11-07 (invoice hook open)
 
