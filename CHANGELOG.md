@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- package metadata
+- **The rights holder is named as "the Olymp (Robin Parker)"** in `LICENSE`, in `Authors`, in the
+  packed README's credits and, newly, in a `Copyright` field -- the nuspec carried no `copyright`
+  element at all before, so that field was empty rather than wrong. `Company` is set to the same
+  string, which is where a consumer inspecting the assembly reads it. Verified out of a built
+  `.nupkg` rather than off the source. 0.3.0 and 0.4.0 are published and immutable, so this takes
+  effect from the next release on. The remaining `TheOlymp` spellings in the package are URLs
+  (`projectUrl`, `repository url`, SourceLink), not holder claims, and are left alone.
+
 ### Changed -- supply chain
 - **The weekly scan timer is checked, not assumed.** A scheduled workflow re-scans the published
   package against an advisory database that moves while the code stands still -- and GitHub

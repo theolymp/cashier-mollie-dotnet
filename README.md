@@ -1147,7 +1147,7 @@ dotnet test
 
 - **[Sander van Hooft](https://github.com/sandervanhooft)** and the Laravel/Mollie community -- for creating and maintaining [laravel-cashier-mollie](https://github.com/mollie/laravel-cashier-mollie), the inspiration and reference implementation for this project
 - **[Mollie](https://www.mollie.com)** -- for their excellent payment platform and API
-- **[TheOlymp](https://github.com/TheOlymp)** -- creator and maintainer of this .NET port
+- **[the Olymp (Robin Parker)](https://github.com/theolymp)** -- rights holder, creator and maintainer of this .NET port
 
 ## License
 

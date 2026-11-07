@@ -12,7 +12,14 @@
     <!-- The version a tag would publish. Nothing is published by a push: the publish job is
          gated on refs/tags/v*, so this sits here until a tag is cut. -->
     <Version>0.5.0</Version>
-    <Authors>TheOlymp</Authors>
+    <!-- The rights holder, named the same way in LICENSE, in the packed README and in the
+         assembly: Authors is what nuget.org shows, Copyright is what the nuspec carries (it
+         had no copyright element at all before 2026-11-07, so this field was empty rather
+         than wrong), and Company is where a consumer inspecting the DLL reads it. 0.3.0 and
+         0.4.0 are already published and immutable; this takes effect from 0.5.0 on. -->
+    <Authors>the Olymp (Robin Parker)</Authors>
+    <Copyright>Copyright (c) 2026 the Olymp (Robin Parker)</Copyright>
+    <Company>the Olymp (Robin Parker)</Company>
     <Description>Mollie subscription management for ASP.NET Core — feature parity with laravel/cashier-mollie</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/TheOlymp/cashier-mollie-dotnet</PackageProjectUrl>
