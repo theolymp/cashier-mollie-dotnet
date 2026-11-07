@@ -77,6 +77,37 @@ generate() {
         || fail_not_measured "$OUT_DIR/$filename is missing or empty after generating $label"
 }
 
+# The verdict scopes to ONE packable project, named above. That is correct today and silently
+# wrong the moment a second one appears: the gate would judge this project's dependencies and say
+# nothing at all about the other project's, which reads as an all-clear over half of what ships.
+# A peer session hit exactly this through a different door -- their scope flag accepted repeats but
+# `next(...)` took the first and dropped the rest, giving one repo a clean verdict over half its
+# shipped set. Their summary of it is the one to keep: a tool that answers correctly and answers a
+# different question.
+#
+# So the assumption is asserted rather than documented. IsPackable is the authoritative property
+# (measured: true for the library, false for the test project), so adding a packable project makes
+# this stop loudly instead of halving the scope quietly.
+packable=""
+while IFS= read -r project; do
+    [ -n "$project" ] || continue
+    value="$(dotnet msbuild "$project" -getProperty:IsPackable -nologo 2>/dev/null | tr -d '\r\n')"
+    [ "$value" = "true" ] && packable="$packable$project"$'\n'
+done <<EOF
+$(find . -name '*.csproj' | sed 's|^\./||' | sort)
+EOF
+expected="$SHIPPED_PROJECT"$'\n'
+if [ "$packable" != "$expected" ]; then
+    fail_not_measured "the packable projects are not the one this gate scopes to.
+Expected exactly:
+$expected
+Measured:
+${packable:-<none>}
+The license verdict covers \$SHIPPED_PROJECT alone, so any other packable project would ship
+dependencies this run never classified. Add it to this script -- one BOM per packable project,
+each non-empty in its own right -- rather than widening SHIPPED_PROJECT."
+fi
+
 generate "$SOLUTION" "bom-solution.json" "the whole solution"
 generate "$SHIPPED_PROJECT" "bom-shipped.json" "the shipped library"
 

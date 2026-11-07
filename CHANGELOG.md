@@ -56,6 +56,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   guards for a missing, empty or unparseable BOM had never run, and each now has to name its own
   cause; the UNKNOWN severity branch had never run either. One guard in the expression splitter is
   unreachable by construction and is marked as such instead of being described as covered.
+- The licence gate asserts that exactly one project is packable, the one it scopes to. Adding a
+  second packable project now stops the run as "not measured" rather than silently judging the
+  first project's dependencies and saying nothing about the second's -- an all-clear over half of
+  what ships.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job

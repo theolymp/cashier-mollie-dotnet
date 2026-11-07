@@ -589,6 +589,19 @@ result. So the sequence now reads: a false claim about test coverage, caught; th
 about what a new test covers, caught by distrusting the instrument that confirmed it. Both were
 mine, in the same file, inside an hour, while fixing this exact class.
 
+**And one limit of the build shape itself, turned into a guard rather than a note.** The verdict
+scopes to one packable project, which is right today and silently wrong the moment a second
+appears: the gate would judge this project's dependencies and say nothing about the other's, which
+reads as an all-clear over half of what ships. A peer reached the same hole through a different
+door -- their scope flag accepted repeats, `next(...)` took the first and dropped the rest, and a
+repo with two shipping projects got a clean verdict over half its shipped set. Their summary is the
+one worth keeping: **a tool that answers correctly and answers a different question.** I had argued
+that morning that putting scope in the signature means it cannot be forgotten; it cannot be
+forgotten, but it can be **halved**, and that is not a property of flags. So `IsPackable` is now
+asserted (measured: true for the library, false for the test project) and a second packable project
+stops the run as NOT MEASURED instead of quietly narrowing the scope. Verified both ways -- passes
+today, fires with a throwaway packable project in the tree.
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
