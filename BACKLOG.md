@@ -319,11 +319,27 @@ a fourth. Do not read a number off this page; the run prints the current set. Wh
   rather than a tag for 2.0.3, so the link does not establish it and the text does.
 - `Mollie.Api` 4.18.0 is **still open and is the one that matters**, because it ships. It is also
   the only thing standing between the license verdict and being able to block.
-- `SourceGear.sqlite3` and `Microsoft.Data.SqlClient.SNI.runtime` are test-only and do not gate.
+- `Microsoft.Data.SqlClient.SNI.runtime` 6.0.2 is **not open source**, which is worse than
+  unnameable and was nearly recorded as the same thing. Its nuspec declares
+  `<license type="file">LICENSE.txt</license>` -- a file reference, which is the whole reason the
+  BOM shows only the placeholder -- and the file inside the nupkg is "MICROSOFT SOFTWARE LICENSE
+  TERMS / MICROSOFT.DATA.SQLCLIENT.SNI LIBRARY". Section 3(a) grants redistribution only as
+  Distributable Code: inside an application, "not as a standalone distribution", and distributors
+  and end users must "agree to terms that protect it at least as much as this agreement". **That
+  second condition is the one that matters to a library**: an MIT-licensed NuGet package cannot
+  impose it on whoever installs it. Measured here by reading the file out of the cached nupkg,
+  after the finding arrived from elsewhere -- it was not taken on trust.
+  It is **test-only in this repository**, arriving with the SQL Server provider, so nothing is
+  redistributed and it does not gate. It classifies as `PROPRIETARY` via the SPDX `LicenseRef-`
+  prefix, and the hand resolution **names it without approving it**: the verdict stays a finding.
+  Any package that *ships* SqlClient has this in its own verdict set.
+- `SourceGear.sqlite3` is test-only and unnameable; nobody has read it yet.
 
 A hand resolution can only ever replace UNKNOWN: where the BOM names a license, the BOM wins. An
 override able to overrule a declared expression would be a way to silence a real finding, which is
-the opposite of what the table is for -- pinned in the self-test, along with both orderings of
+the opposite of what the table is for. It may move an UNKNOWN in **either** direction, and both are
+in use -- `xunit.abstractions` becomes permissive, SqlClient.SNI becomes a blocking finding.
+"Resolved" means someone read the license, not that the component passed -- pinned in the self-test, along with both orderings of
 `<unnameable> AND MIT`, a direction that broke the same classification elsewhere by falling through
 to whichever side happened to be written first.
 

@@ -38,6 +38,17 @@ import sys
 
 # Strongest copyleft first. Each entry: (class, pattern, why it matters to a redistributed package)
 CLASSES = [
+    # First because it is not a copyleft term at all but a different fact: the package is not open
+    # source, and redistribution is a conditional grant rather than a right.
+    #
+    # Matched on the SPDX `LicenseRef-` prefix, which strictly means only "an identifier SPDX does
+    # not define". So this class name asserts more than the prefix proves: a permissive in-house
+    # licence expressed as a LicenseRef would be reported here too. That direction is deliberate --
+    # over-report a custom licence, never wave one through -- and the actual terms live in the
+    # evidence string of whatever named it, not in the class.
+    ("PROPRIETARY", r"\bLicenseRef-",
+     "not an SPDX licence: vendor terms, and redistribution is conditional. Read them before "
+     "shipping anything that carries this"),
     ("AGPL", r"\bAGPL", "network copyleft -- bites on SaaS without any distribution at all"),
     ("SSPL", r"\bSSPL", "not OSI-approved, hostile to offering the software as a service"),
     ("BUSL", r"\b(BUSL|BSL-1\.1|Business Source)", "source-available, not open source; time-delayed grant"),
@@ -72,6 +83,27 @@ PERMISSIVE_NAME = "permissive"
 # true. This one expires by itself. Every entry that applies is printed on each run, green or not,
 # so it cannot sit here unread.
 RESOLVED_BY_HAND = {
+    # NOT open source, and the entry exists to say so rather than to clear it. The nuspec declares
+    # `<license type="file">LICENSE.txt</license>` -- a file reference, which is why the BOM only
+    # ever shows the "Unknown - See URL" placeholder -- and the file in the package (8393 bytes) is
+    # "MICROSOFT SOFTWARE LICENSE TERMS / MICROSOFT.DATA.SQLCLIENT.SNI LIBRARY", read out of the
+    # nupkg rather than off a web page.
+    #
+    # Section 3(a) grants redistribution only as "Distributable Code": inside an application and
+    # "not as a standalone distribution", and it requires distributors and end users to "agree to
+    # terms that protect it at least as much as this agreement". That second condition is the one
+    # that matters to a NuGet library: an MIT-licensed package cannot impose it on the people who
+    # install it. Test-only here, so nothing is redistributed -- but it arrives with the SQL Server
+    # provider, so any package that SHIPS SqlClient has it in its own verdict set.
+    #
+    # Resolving this to an SPDX id would have been the comfortable move and a false one. It is
+    # named, not cleared: the verdict stays a finding.
+    ("Microsoft.Data.SqlClient.SNI.runtime", "6.0.2"): (
+        "LicenseRef-Microsoft-SqlClient-SNI",
+        "Microsoft EULA, read from LICENSE.txt inside the nupkg. Redistribution is conditional "
+        "(section 3a: inside an application only, and downstream must be bound to equally "
+        "protective terms). NAMED, NOT APPROVED",
+    ),
     ("xunit.abstractions", "2.0.3"): (
         "Apache-2.0",
         "read at the package itself: its nuspec and the license text it ships. Caveat worth "
@@ -88,7 +120,7 @@ WHY = {name: why for name, _, why in CLASSES}
 WHY[UNKNOWN] = "expression belongs to no class this script knows -- needs a human"
 WHY[PERMISSIVE_NAME] = ""
 
-BLOCKING = {"AGPL", "SSPL", "BUSL", "GPL"}
+BLOCKING = {"PROPRIETARY", "AGPL", "SSPL", "BUSL", "GPL"}
 
 
 class NotMeasured(Exception):
@@ -154,6 +186,10 @@ def component_verdict(component):
     # A hand resolution only ever replaces UNKNOWN. If the BOM names a license, the BOM wins: an
     # override able to overrule a declared expression would be a way to silence a real finding,
     # which is the opposite of what this table is for.
+    #
+    # It may resolve an UNKNOWN in either direction, and both are in use: xunit.abstractions
+    # becomes permissive, and SqlClient.SNI becomes PROPRIETARY, which is a finding. "Resolved"
+    # here means someone read the licence, not that the component passed.
     resolved = RESOLVED_BY_HAND.get((component.get("name"), component.get("version")))
     if resolved is not None and verdict == UNKNOWN:
         license_name = resolved[0]
@@ -231,8 +267,17 @@ def report(shipped_path, solution_path):
 
     for scope in ("shipped", "test-only"):
         for name, verdict, expression in findings[scope]:
-            severity = "blocking copyleft" if verdict in BLOCKING else (
-                "cannot be named" if verdict == UNKNOWN else "weak copyleft")
+            # PROPRIETARY is in BLOCKING but is not copyleft, so the label is chosen before the
+            # set is consulted. A warning that calls a EULA "blocking copyleft" is wrong about the
+            # one thing the reader needs from it.
+            if verdict == "PROPRIETARY":
+                severity = "not open source"
+            elif verdict in BLOCKING:
+                severity = "blocking copyleft"
+            elif verdict == UNKNOWN:
+                severity = "cannot be named"
+            else:
+                severity = "weak copyleft"
             print("::warning::%s (%s): %s -- %s, %s. %s"
                   % (name, scope, expression, verdict, severity, WHY[verdict]))
 
@@ -273,6 +318,10 @@ def self_test():
     expect("MPL-2.0", "MPL")
     expect("SSPL-1.0", "SSPL")
     expect("MS-PL", "MS-PL")
+    expect("LicenseRef-Microsoft-SqlClient-SNI", "PROPRIETARY")
+    expect("LicenseRef-Anything-At-All", "PROPRIETARY")   # the prefix, not the vendor's name
+    expect("MIT AND LicenseRef-Vendor", "PROPRIETARY")    # both apply, the conditional one binds
+    expect("MIT OR LicenseRef-Vendor", PERMISSIVE_NAME)   # a choice, so take the MIT branch
 
     # Known-negative: these must NOT come out permissive.
     expect("Unknown - See URL", UNKNOWN)
@@ -314,6 +363,12 @@ def self_test():
         # And it never overrules a license the BOM actually names.
         ({"name": "xunit.abstractions", "version": "2.0.3",
           "licenses": [{"license": {"id": "GPL-3.0-only"}}]}, "GPL"),
+        # A resolution can also make a component WORSE than unknown, and this one does: the entry
+        # names a licence without approving it, so the verdict has to stay a finding.
+        ({"name": "Microsoft.Data.SqlClient.SNI.runtime", "version": "6.0.2",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, "PROPRIETARY"),
+        ({"name": "Microsoft.Data.SqlClient.SNI.runtime", "version": "6.0.3",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
     ):
         actual = component_verdict(component)[0]
         if actual != wanted:
