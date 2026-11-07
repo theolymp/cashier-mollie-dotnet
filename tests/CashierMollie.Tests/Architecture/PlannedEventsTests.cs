@@ -8,7 +8,7 @@ namespace CashierMollie.Tests.Architecture;
 /// <summary>
 /// Keeps the "declared but never dispatched" event set honest in both directions.
 ///
-/// Seven events are declared, unit-tested and dispatched by nothing. That is deliberate — but the
+/// Several events are declared, unit-tested and dispatched by nothing. That is deliberate — but the
 /// generated XML documentation ships inside the NuGet package, so whatever its summary claims is
 /// what a consumer reads in IntelliSense. A summary saying "Dispatched when X" on an event nothing
 /// dispatches is a promise the library does not keep, and the consumer's handler simply never runs.
@@ -51,7 +51,7 @@ public class PlannedEventsTests
     [Fact]
     public void EveryPlannedEvent_IsDocumentedAsReserved()
     {
-        XElement doc = LoadShippedXmlDocumentation();
+        XElement doc = RepositoryDocs.ShippedXmlDocumentation(LibraryAssembly);
         List<string> members = doc.Descendants("member")
             .Select(m => (string?)m.Attribute("name") ?? string.Empty)
             .ToList();
@@ -131,7 +131,7 @@ public class PlannedEventsTests
         // of the seven as if they fire. Worse, it already carried the warning on ONE of them, which
         // reads as exhaustive and certifies the rest. Pinning both directions ties the table to the
         // measured set so neither can drift alone.
-        string readme = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName, "README.md"));
+        string readme = RepositoryDocs.Read("README.md");
         Assert.NotEmpty(readme);
 
         List<string> declared = DeclaredEventNames();
@@ -189,7 +189,7 @@ public class PlannedEventsTests
                 + "Remove the NOT INVOKED wording from both doc comments, drop the README caveat, "
                 + "and delete this test — the seam is real now.");
 
-        XElement doc = LoadShippedXmlDocumentation();
+        XElement doc = RepositoryDocs.ShippedXmlDocumentation(LibraryAssembly);
         foreach (string member in new[]
                  {
                      "T:CashierMollie.Interfaces.IInvoiceGenerator`1",
@@ -204,6 +204,28 @@ public class PlannedEventsTests
     }
 
     private const string ReadmeNotDispatchedMarker = "Never dispatched in this version";
+
+    [Fact]
+    public void PlannedEvents_MatchTheLinePinnedInTheBacklog()
+    {
+        // The set was pinned against the code, the shipped summaries and the README table, and
+        // BACKLOG.md still listed OrderProcessed as reserved under a heading reading "Seven".
+        // Not shipped, and read by whoever decides what to work on next -- so a stale entry sends
+        // the next session to build something that exists.
+        List<string> pinned = RepositoryDocs.PinnedNames("Reserved, measured and pinned by tests:");
+
+        // Known-negative, and a typo guard: every name there must be a declared event.
+        Assert.DoesNotContain("QqzzzNichtVorhanden1017", pinned);
+        List<string> declared = DeclaredEventNames();
+        foreach (string name in pinned)
+        {
+            Assert.Contains(name, declared);
+        }
+
+        Assert.Equal(
+            PlannedEvents.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+            pinned.OrderBy(n => n, StringComparer.Ordinal).ToList());
+    }
 
     private static List<string> DeclaredEventNames() =>
         LibraryAssembly.GetExportedTypes()
@@ -228,7 +250,7 @@ public class PlannedEventsTests
 
     private static Dictionary<string, string> ReadProductionSources()
     {
-        DirectoryInfo root = FindRepositoryRoot();
+        DirectoryInfo root = RepositoryDocs.Root();
         string declarationFile = Path.Combine(
             root.FullName, "src", "CashierMollie", "Events", "CashierEvents.cs");
 
@@ -248,27 +270,4 @@ public class PlannedEventsTests
         return sources;
     }
 
-    private static XElement LoadShippedXmlDocumentation()
-    {
-        string xmlPath = Path.ChangeExtension(LibraryAssembly.Location, ".xml");
-        Assert.True(
-            File.Exists(xmlPath),
-            $"No XML documentation beside the assembly ({xmlPath}). It ships inside the package, so "
-                + "its absence is itself a finding.");
-        return XElement.Load(xmlPath);
-    }
-
-    private static DirectoryInfo FindRepositoryRoot()
-    {
-        DirectoryInfo? dir = new(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CashierMollie.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        // Fail, never skip: dotnet test exits 0 for an all-skipped run, so a skip here would be
-        // indistinguishable from a pass.
-        Assert.True(dir is not null, "CashierMollie.sln not found above " + AppContext.BaseDirectory);
-        return dir!;
-    }
 }

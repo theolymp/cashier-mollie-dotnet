@@ -28,7 +28,7 @@ public class ReadmeCouponDocsTests : IDisposable
     private readonly CashierDbContext<string> _db = TestDbContextFactory.Create();
 
     private static string Readme() =>
-        File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName, "README.md"));
+        RepositoryDocs.Read("README.md");
 
     /// <summary>The fenced json block that follows the coupon-configuration paragraph.</summary>
     private static string DocumentedCouponJson()
@@ -150,18 +150,6 @@ public class ReadmeCouponDocsTests : IDisposable
 
         // Known-negative: the old, non-compiling form must be gone, not merely joined by the new.
         Assert.DoesNotContain("RedeemAsync(\"LAUNCH10\", subscription, user.Id)", readme, StringComparison.Ordinal);
-    }
-
-    private static DirectoryInfo FindRepositoryRoot()
-    {
-        DirectoryInfo? dir = new(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CashierMollie.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        Assert.True(dir is not null, "CashierMollie.sln not found above " + AppContext.BaseDirectory);
-        return dir!;
     }
 
     public void Dispose()

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- documentation
+- **`BACKLOG.md`'s two "declared but inert" sets are pinned by tests.** Both were stale: it called
+  `OrderNumberFormat` unread and `OrderProcessed` reserved, under headings counting "Three" and
+  "Seven", months after the code, the XML summaries, the README rows and the architecture tests had
+  all been corrected together. Each entry now names its set on one paragraph with a fixed prefix,
+  and the tests compare that paragraph with the set the code pins -- so the file a contributor
+  reads to find open work can no longer disagree with the code. No consumer-visible change.
+
 ### Changed -- package metadata
 - **The rights holder is named as "the Olymp (Robin Parker)"** in `LICENSE`, in `Authors`, in the
   packed README's credits and, newly, in a `Copyright` field -- the nuspec carried no `copyright`

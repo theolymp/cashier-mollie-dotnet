@@ -38,8 +38,8 @@ namespace CashierMollie.Tests.Architecture;
 /// is exactly that case (SwapOptions reads it to throw, SubscriptionOptions does not read it at
 /// all) — acceptable, because both entrances now fail loudly either way.
 ///
-/// Repository-reading helpers are deliberately duplicated from PlannedEventsTests rather than
-/// shared; at a third copy they belong in one place.
+/// The repository-reading helpers moved to <see cref="RepositoryDocs"/> on 2026-11-07, when the
+/// backlog reader made a third copy of them -- which is the condition the old note here named.
 /// </summary>
 public class OptionsSurfaceTests
 {
@@ -151,7 +151,7 @@ public class OptionsSurfaceTests
     [Fact]
     public void UnreadOption_IsDocumentedAsNotHonoured()
     {
-        XElement doc = LoadShippedXmlDocumentation();
+        XElement doc = RepositoryDocs.ShippedXmlDocumentation(typeof(CashierMollieOptions).Assembly);
         Assert.NotEmpty(doc.Descendants("member").ToList());
 
         foreach (string name in UnreadOptions)
@@ -175,12 +175,37 @@ public class OptionsSurfaceTests
     }
 
     [Fact]
+    public void UnreadOptions_MatchTheLinePinnedInTheBacklog()
+    {
+        // BACKLOG.md is what a session reads to decide what is still open, and it is the one place
+        // this set was NOT pinned: it still called OrderNumberFormat unread months after the
+        // engine began reading it, under a heading that counted "Three". Every other statement
+        // about this set -- the code, the XML summary, the README row -- had been corrected in the
+        // same commit that wired it.
+        List<string> pinned = RepositoryDocs.PinnedNames("Unread, measured and pinned by tests:");
+
+        // Known-negative: an invented name must not be found in the paragraph.
+        Assert.DoesNotContain("QqzzzNichtVorhanden1017", pinned);
+
+        // A typo in the backlog cannot pass as a finding: every name there must be a real option.
+        List<string> settable = SettableOptionNames();
+        foreach (string name in pinned)
+        {
+            Assert.Contains(name, settable);
+        }
+
+        Assert.Equal(
+            UnreadOptions.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+            pinned.OrderBy(n => n, StringComparer.Ordinal).ToList());
+    }
+
+    [Fact]
     public void EverySettableOption_HasOneReadmeRow_MarkedIffUnread()
     {
         // The XML summaries were corrected twice while the README options table kept the original
         // wording both times -- three laggings in one session counting the event table. A reflex
         // does not survive that; a test does.
-        string readme = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName, "README.md"));
+        string readme = RepositoryDocs.Read("README.md");
         Assert.NotEmpty(readme);
 
         List<string> settable = SettableOptionNames();
@@ -295,7 +320,7 @@ public class OptionsSurfaceTests
 
     private static Dictionary<string, string> ReadProductionSources()
     {
-        DirectoryInfo root = FindRepositoryRoot();
+        DirectoryInfo root = RepositoryDocs.Root();
         Dictionary<string, string> sources = Directory
             .EnumerateFiles(Path.Combine(root.FullName, "src"), "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
@@ -308,23 +333,4 @@ public class OptionsSurfaceTests
         return sources;
     }
 
-    private static XElement LoadShippedXmlDocumentation()
-    {
-        string xmlPath = Path.ChangeExtension(typeof(CashierMollieOptions).Assembly.Location, ".xml");
-        Assert.True(File.Exists(xmlPath), $"No XML documentation beside the assembly ({xmlPath})");
-        return XElement.Load(xmlPath);
-    }
-
-    private static DirectoryInfo FindRepositoryRoot()
-    {
-        DirectoryInfo? dir = new(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CashierMollie.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        // Fail, never skip: dotnet test exits 0 for an all-skipped run.
-        Assert.True(dir is not null, "CashierMollie.sln not found above " + AppContext.BaseDirectory);
-        return dir!;
-    }
 }

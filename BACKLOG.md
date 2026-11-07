@@ -221,15 +221,22 @@ exists — the consumer owns `OrderItem.UnitPrice`.
 
 ## API surface
 
-### Seven declared events are dispatched by nothing
+### Declared events that nothing dispatches
 
-`BalanceTurnedStale`, `MandateUpdated`, `OrderInvoiceAvailable`,
-`OrderPaymentFailedDueToInvalidMandate`, `OrderProcessed`, `RefundFailed`, `RefundProcessed`.
-Each now opens its XML summary with `RESERVED — no service dispatches this event`, which ships
-inside the package, so the text appears in IntelliSense. Architecture tests fail in both
-directions: a new undispatched event, or a wired event still listed as reserved.
+Reserved, measured and pinned by tests: `BalanceTurnedStale`, `MandateUpdated`,
+`OrderInvoiceAvailable`, `OrderPaymentFailedDueToInvalidMandate`, `RefundFailed`,
+`RefundProcessed`.
 
-Open: remove them at the next major version. Breaking, hence deferred rather than done.
+Each opens its XML summary with `RESERVED -- no service dispatches this event`, which ships inside
+the package, so the text appears in IntelliSense. Architecture tests fail in both directions: a new
+undispatched event, or a wired event still listed as reserved.
+
+`OrderProcessed` was a seventh name here until 0.5.0 and **is dispatched now** by the Managed
+engine's order header. Same lag as the options entry above, same cause: the pinned set in the test,
+the XML summary and the README row were all corrected, and this file was not -- so the heading said
+"Seven" and the list named a live event. Both lines are pinned as of 2026-11-07.
+
+Open: remove the six above at the next major version. Breaking, hence deferred rather than done.
 
 ### The options detector counted writes as reads (fixed)
 
@@ -251,7 +258,9 @@ Two things worth keeping from it: a detector whose criterion is "the name appear
 reading from writing, and the sentences that document a gap **mention the gap's identifiers**, so the
 comment stripper is what keeps the documentation from hiding what it documents.
 
-### Three options are read by nothing in this library
+### Options this library reads nowhere
+
+Unread, measured and pinned by tests: `ApiKey`, `Locale`.
 
 - `ApiKey` — the Mollie client is authenticated by the consumer's own `AddMollieApi()` call, not
   from here. **This is a declared configuration slot, not a dead one:** consumers bind this section
@@ -260,11 +269,22 @@ comment stripper is what keeps the documentation from hiding what it documents.
   data, so a single configured value contradicts any per-user language choice. If it is ever wired,
   the default must change to "unset sends nothing" **in the same commit** — it currently defaults to
   `de_DE`, so naive wiring would force German checkout pages on every consumer.
-- `OrderNumberFormat` — never read.
 
-Each is marked `NOT READ BY THIS LIBRARY` in its XML summary and pinned by tests.
-Open: remove `Locale` and `OrderNumberFormat` at the next major, or build `Locale` properly as a
-per-request parameter.
+`OrderNumberFormat` was the third name here until 0.5.0 and **is read now** -- the Managed engine
+builds the order number from it (measured at `ManagedBillingEngine.cs:259` and `:268`), so it stays
+rather than going at the next major. The XML summary, the README row and the architecture tests
+were all corrected when it was wired; this entry was not, and said "never read" for a day beside
+code that read it.
+
+Each name in the line above is marked `NOT READ BY THIS LIBRARY` in its XML summary, carries a
+README row marked as unread, and is pinned in both directions -- wiring one up fails a test, and so
+does adding a settable option nothing reads. **Since 2026-11-07 the line above is pinned too**, so
+this entry cannot lag the code again the way it just did.
+
+The heading carries no count on purpose. This file's own first rule is that every number in it goes
+stale, and the previous heading said "Three" while the set was two.
+
+Open: remove `Locale` at the next major, or build it properly as a per-request parameter.
 
 ### The invoice hook is never invoked
 
