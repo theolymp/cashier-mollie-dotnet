@@ -18,9 +18,15 @@ on:
   # refs/tags/v*, which a schedule event never carries -- so a timed run builds, tests and scans
   # and can publish nothing.
   #
-  # Caveat worth knowing before trusting this: GitHub disables scheduled workflows in public
-  # repositories after 60 days without repository activity, and it does so quietly. A silent
-  # timer and a clean scan look identical from the outside, so do not read "no alert" as "scanned".
+  # GitHub disables scheduled workflows in public repositories after 60 days without repository
+  # activity, and the Actions UI does so quietly -- a silent timer and a clean scan look identical
+  # from outside. Since 2026-11-07 that is checked rather than only written down: the step
+  # "Check the weekly scan timer is still alive" reads this workflow's `state` from the API, where
+  # `disabled_inactivity` is one of the values, and fails the run when the timer is off.
+  #
+  # What that step cannot cover, because it runs inside the workflow it measures: if automatic
+  # disabling stops the push trigger too -- the documentation does not say -- there is no run to
+  # report it, and the symptom is a commit with no checks at all rather than a red one.
   schedule:
     - cron: '17 4 * * 1'
 
@@ -45,6 +51,14 @@ env:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
+    # Spelled out rather than inherited, because one step reads the Actions API: the workflow's
+    # own state, to tell a live weekly timer from a dead one. `actions: read` is what that needs,
+    # and naming the whole set keeps the default (which a repository setting can widen to
+    # write-all) out of the decision.
+    permissions:
+      contents: read
+      actions: read
 
     # A real PostgreSQL, because both known consumers deploy on it and the same model resolves
     # decimal differently per provider (numeric here, TEXT on SQLite, decimal(18,2) on SQL Server).
@@ -134,6 +148,22 @@ jobs:
           # So: do not shorten it because 90 looks generous, and do not lengthen it in the belief
           # that doing so discharges a retention duty. Both would be wrong for different reasons.
           retention-days: 90
+
+      # Asks whether the weekly timer above is still running, because nothing else here would
+      # notice if it stopped. GitHub disables scheduled workflows in public repositories after 60
+      # days of inactivity, and a dead timer looks exactly like a clean scan from outside -- the
+      # caveat written next to the `schedule:` block, now measured instead of only warned about:
+      # `disabled_inactivity` is a value of the workflow's `state` field.
+      #
+      # Deliberately after the scan and the SBOM upload, for the same reason those sit before
+      # Build: a step cannot suppress evidence that was already produced. And deliberately NOT
+      # gated on the event -- if automatic disabling also stops the push trigger (the GitHub
+      # documentation does not say either way), a pull_request run may be the only place this can
+      # still be asked.
+      - name: Check the weekly scan timer is still alive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .github/schedule-liveness.sh
 
       - name: Build
         run: dotnet build --no-restore --configuration Release

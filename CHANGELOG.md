@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- supply chain
+- **The weekly scan timer is checked, not assumed.** A scheduled workflow re-scans the published
+  package against an advisory database that moves while the code stands still -- and GitHub
+  disables scheduled workflows in public repositories after 60 days without repository activity,
+  with nothing going red. CI now reads this workflow's `state` from the Actions API, where
+  `disabled_inactivity` is one of its values, and fails when the timer is off; the run's age is
+  reported beside it without a verdict, because scheduled runs are delayed and dropped under load
+  (measured: a `17 4 * * 1` cron fired at 12:28 UTC). Consumer-visible only in that a release is
+  cut from a repository whose dependency scan is known to still be running.
+
 ### Changed -- schema, migration required
 - **Every `decimal` column now declares `decimal(18,4)`.** Until 0.4.0 none of the 13 money columns
   set a precision, so each provider chose one: unconstrained `numeric` on PostgreSQL, `TEXT` on

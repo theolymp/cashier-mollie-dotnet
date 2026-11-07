@@ -675,12 +675,37 @@ run goes red, which is correct. The path this replaced failed the other way -- i
 `if: env.NUGET_API_KEY != ''`, so a tag with no secret configured produced a **green run that
 published nothing**.
 
-### Scheduled scanning was added, and can be disabled silently
+### Scheduled scanning was added, and the timer is now checked (2026-11-07)
 
-A weekly `schedule:` trigger now runs build, test and scan without a push, because the advisory
-database moves while the code stands still. **Caveat:** GitHub disables scheduled workflows in
-public repositories after 60 days without repository activity, and does so quietly — a silent timer
-and a clean scan look identical from outside. Do not read "no alert" as "scanned".
+A weekly `schedule:` trigger runs build, test and scan without a push, because the advisory
+database moves while the code stands still. GitHub disables scheduled workflows in public
+repositories after 60 days without repository activity, so the timer can stop with nothing going
+red, and from outside a dead timer and a clean scan look identical.
+
+**That caveat is now measured instead of only written down.** `state` is a field on the workflow
+API and `disabled_inactivity` is one of its values, so what the Actions UI does quietly is in fact
+readable: `.github/schedule-liveness.sh` reads it on every run and fails the build when the timer
+is off, naming the one command that fixes it. Two claims, deliberately kept apart, because they
+are not the same kind of statement:
+
+- **state** is measurement. Non-active is a hard failure, and each of the four states the API can
+  return carries its own cause and its own fix rather than one shared "disabled".
+- **age** is inference, and is reported without a verdict. Measured 2026-11-07: a `17 4 * * 1`
+  cron produced a run at 12:28 UTC, eight hours late, because GitHub delays and drops scheduled
+  runs under load. An age threshold would therefore be a flake generator, and the runs API only
+  keeps a window, so "no scheduled run listed" cannot be told from "never fired".
+
+The verdict lives in `.github/schedule-liveness.py` with a self-test that drives all four tiers
+through `main()` and pins the phrase each one must say; five sabotages (always-alive, event filter
+dropped, unknown state read as active, the four causes collapsed into one message, age window
+ignored) each turn it red with disjoint signatures, against a baseline measured green first.
+
+**Open, and structural:** the check runs inside the workflow it measures. GitHub's documentation
+does not say whether automatic disabling also stops `push` and `pull_request`. If it does, no run
+exists to report it — the symptom is then a commit with no checks at all, not a red one. The only
+real fix is a watcher outside this repository, which is not this repository's to build. Until then
+the check covers what it can reach (manual disable, fork default, deleted workflow, a timer that
+is active but stopped producing runs) and cannot make the unreachable case worse.
 
 ---
 
