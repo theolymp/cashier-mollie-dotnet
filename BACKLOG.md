@@ -309,7 +309,15 @@ Green means the internal logic holds and translates to SQL. It does not mean the
 
 - **No runs against real Mollie.** The Mollie client is mocked throughout. The "integration" and
   "E2E" names in the suite are misleading in that respect.
-- **SQL Server is not covered.** PostgreSQL is (skipped unless `CASHIERMOLLIE_TEST_POSTGRES` is
-  set, and the skips state why), and SQLite is covered against a real file-less database.
+- **SQL Server is covered since 2026-11-07** (6 tests, `Integration/SqlServerTranslationTests.cs`),
+  which closes the last provider gap that could change an amount. Same shape as the PostgreSQL
+  harness: connection string from `CASHIERMOLLIE_TEST_SQLSERVER`, no Testcontainers, skips with a
+  stated reason when it is absent, and CI asserts the slice really ran. Measured there, against a
+  real SQL Server 2022: all **13** mapped decimal columns resolve to `decimal(18,2)` -- read out of
+  `INFORMATION_SCHEMA` rather than off the model -- and `11.3862` comes back as `11.39`, where
+  PostgreSQL returns it whole. The column set is read from the catalog and its size asserted, so
+  adding a decimal property turns the test red instead of silently going unchecked.
+  PostgreSQL (skipped unless `CASHIERMOLLIE_TEST_POSTGRES` is set, and the skips state why) and
+  SQLite (against a real file-less database) remain as they were.
 - Test counts are deliberately not recorded here or in the contributor docs: a number in a
   document goes stale silently, usually within a day. Run the suite.

@@ -34,6 +34,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   would have to hold for it to block; failing to reach a verdict at all -- no BOM, an empty or
   unparseable one, zero components, or a failed classifier self-test -- is a hard failure, because
   "I read nothing" must not be able to look like "nothing found".
+- Tests now also run against a real SQL Server, the provider where the same model resolves
+  `decimal` to `decimal(18,2)` and rounds. No consumer deploys on it, which is why it was the gap:
+  the provider nobody runs is the provider nobody notices, and it is the one that silently changes
+  an amount. Six tests pin the harness really reaching SQL Server, the schema, the one decimal
+  comparison the library performs in SQL, optimistic concurrency, that all 13 mapped decimal
+  columns resolve to `decimal(18,2)` -- read out of `INFORMATION_SCHEMA`, with the column count
+  itself asserted so a new decimal property cannot go unchecked -- and that `11.3862` comes back as
+  `11.39` where PostgreSQL returns it whole. Configured exactly like the PostgreSQL harness:
+  `CASHIERMOLLIE_TEST_SQLSERVER`, no Testcontainers, skip with a stated reason when absent, and CI
+  asserts the slice ran. The precision tests are expected to change when explicit precision is set
+  on those columns; that is what they are for.
 
 ### Added
 - **A coupon now changes the amount.** Given a code, both engines validate it and record the

@@ -49,6 +49,13 @@ jobs:
     # A real PostgreSQL, because both known consumers deploy on it and the same model resolves
     # decimal differently per provider (numeric here, TEXT on SQLite, decimal(18,2) on SQL Server).
     # A money calculation verified only on SQLite is verified on the wrong engine.
+    #
+    # And a real SQL Server, because that is where the same model resolves decimal to
+    # decimal(18,2) and rounds. No consumer deploys on it, which is precisely why it was the gap:
+    # the provider nobody runs is the provider nobody notices, and it is the one that silently
+    # changes an amount. Both passwords here are throwaway credentials for an ephemeral container
+    # that nothing outside this job can reach -- they are not secrets and do not belong in the
+    # secret store, where they would only make the workflow harder to read.
     services:
       postgres:
         image: postgres:17-alpine
@@ -61,6 +68,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Cashier_ci_pw1
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        # SQL Server needs noticeably longer than PostgreSQL to accept logins, hence the retries.
+        # The sqlcmd path is version-specific and was read out of this exact image tag rather than
+        # assumed: /opt/mssql-tools18/bin/sqlcmd. -C trusts the self-signed certificate, which the
+        # client otherwise rejects because it encrypts by default.
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Cashier_ci_pw1 -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -113,31 +138,29 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # Runs first and on its own, because `dotnet test` exits 0 for passed, for all-skipped and
-      # for zero matching tests alike -- measured 2026-10-04. The exit code therefore cannot tell
-      # "verified against PostgreSQL" from "measured nothing", and these tests skip by design when
-      # CASHIERMOLLIE_TEST_POSTGRES is absent. So the count is read out of the output, the same way
-      # scan-vulnerable.sh reads its findings rather than trusting a status.
+      # The provider slices run first and on their own, because `dotnet test` exits 0 for passed,
+      # for all-skipped and for zero matching tests alike -- measured 2026-10-04. The exit code
+      # therefore cannot tell "verified against this provider" from "measured nothing", and these
+      # tests skip by design when their connection string is absent. test-must-run.sh reads the
+      # passed count out of the output, the same way scan-vulnerable.sh reads its findings rather
+      # than trusting a status.
       - name: Test against PostgreSQL (must actually run, not skip)
         env:
           CASHIERMOLLIE_TEST_POSTGRES: "Host=127.0.0.1;Port=5432;Username=postgres;Password=ci;Database=postgres"
-        run: |
-          dotnet test --no-build --configuration Release --verbosity normal \
-            --filter 'FullyQualifiedName~PostgresTranslationTests' 2>&1 | tee pg-tests.log
-          passed=$(sed -n 's/.*Passed: *\([0-9][0-9]*\).*/\1/p' pg-tests.log | tail -1)
-          if [ -z "$passed" ]; then
-            echo "::error::No Passed count in the output -- the run reported none, so nothing is verified."
-            exit 1
-          fi
-          if [ "$passed" -lt 1 ]; then
-            echo "::error::PostgreSQL tests did not run ($passed passed). They skip when CASHIERMOLLIE_TEST_POSTGRES is unset or the service container is unreachable; a skipped test and a passing one look the same in a summary line, which is why this is asserted."
-            exit 1
-          fi
-          echo "PostgreSQL translation tests ran: $passed passed."
+        run: .github/test-must-run.sh 'FullyQualifiedName~PostgresTranslationTests' 'PostgreSQL translation tests'
+
+      # TrustServerCertificate is required, not cosmetic: Microsoft.Data.SqlClient encrypts by
+      # default and rejects the container's self-signed certificate, so without it every test here
+      # fails on the connection rather than on anything it measures.
+      - name: Test against SQL Server (must actually run, not skip)
+        env:
+          CASHIERMOLLIE_TEST_SQLSERVER: "Server=127.0.0.1,1433;Database=master;User Id=sa;Password=Cashier_ci_pw1;TrustServerCertificate=True"
+        run: .github/test-must-run.sh 'FullyQualifiedName~SqlServerTranslationTests' 'SQL Server translation tests'
 
       - name: Test
         env:
           CASHIERMOLLIE_TEST_POSTGRES: "Host=127.0.0.1;Port=5432;Username=postgres;Password=ci;Database=postgres"
+          CASHIERMOLLIE_TEST_SQLSERVER: "Server=127.0.0.1,1433;Database=master;User Id=sa;Password=Cashier_ci_pw1;TrustServerCertificate=True"
         run: dotnet test --no-build --configuration Release --verbosity normal
 
   publish:
