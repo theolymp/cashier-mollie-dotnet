@@ -44,6 +44,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   number: deleting the warning that reports a stop-tier licence in the test tree left the self-test
   green, and that warning is the only signal that a vendor EULA is present at all. Eight mutations
   are caught, none of them tripping every check.
+- The licence gate's output is now pinned branch by branch, found by deleting each `print` in turn:
+  12 of 18 were removable without any test noticing, including the per-component itemisation, the
+  component counts a zero has to be read against, and the reason a tier does or does not fail the
+  build. One deliberate exception remains, a blank line for spacing. Cases also pin phrases the run
+  must **not** emit, and the hand-resolution table is now exercised end to end rather than only per
+  component -- including the vendor EULA in the test tree, which passes solely on scope and now has
+  to say so.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job

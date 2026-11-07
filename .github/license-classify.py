@@ -582,6 +582,10 @@ def self_test():
     def _licensed(name, identifier):
         return {"name": name, "version": "1", "licenses": [{"license": {"id": identifier}}]}
 
+    def _licensed_version(name, version, identifier):
+        return {"name": name, "version": version,
+                "licenses": [{"license": {"id": identifier}}]}
+
     stop_pkg = _licensed("ghost", "GPL-3.0-only")
     weak_pkg = _licensed("weak", "LGPL-2.1-only")
 
@@ -595,27 +599,71 @@ def self_test():
     # entirely left this self-test green, and that warning is the only thing that surfaces a vendor
     # EULA sitting in the test tree -- which is exactly the state this repo is in. A branch no test
     # tells apart looks like a safeguard and is not one.
-    for shipped_components, solution_components, wanted, says, case in (
+    def _unlicensed(name, version):
+        return {"name": name, "version": version}
+
+    # `says` is required phrases, `silent` is forbidden ones. Measured 2026-11-07 by deleting each
+    # print branch in report()/main() one at a time: 12 of 18 were removable with nothing
+    # noticing. The ones below are pinned because each carries a statement the exit code does not
+    # -- the base set beside the zero, the per-component itemisation, the hand resolutions, the
+    # reason a tier does or does not fail the build. The only branch deliberately left unpinned is
+    # a bare print("") for spacing.
+    for shipped_components, solution_components, wanted, says, silent, case in (
         # A shipped component missing from the solution BOM: fewer shipped than solution, so a
         # size check passes, and the component would never be classified.
         ([pad[0], stop_pkg], pad, EXIT_NOT_MEASURED,
-         ("NOT MEASURED", "ghost@1", "never be classified"),
+         ("NOT MEASURED", "ghost@1", "never be classified", "Nothing was concluded"), (),
          "a shipped component absent from the solution BOM"),
         # The honest shape: shipped is a subset of the solution. The guard must stay quiet -- and
         # the run must still reach a verdict, in every tier.
-        ([pad[0]], pad, EXIT_FREE, ("free tier",), "an all-permissive subset"),
-        ([stop_pkg], pad + [stop_pkg], EXIT_STOP, ("::error::STOP", "ghost"),
+        ([pad[0]], pad, EXIT_FREE,
+         ("free tier", "shipped library gates", "[shipped", "Measured:",
+          "Note: the hand resolution"), (),
+         "an all-permissive subset"),
+        ([stop_pkg], pad + [stop_pkg], EXIT_STOP,
+         ("::error::STOP", "ghost", "This fails the build", "::warning::ghost@1 (shipped)"), (),
          "a STOP licence inside an honest subset"),
         ([weak_pkg], pad + [weak_pkg], EXIT_CASE_BY_CASE,
-         ("documented decision", "LGPL", "weak"),
+         ("documented decision", "LGPL", "weak", "Reported, not blocking"), (),
          "a case-by-case licence inside an honest subset"),
         # Scope, the other direction: a STOP licence present in the solution but NOT shipped keeps
         # the verdict free. Without this the gate goes permanently red for a test dependency this
         # package does not redistribute, and a permanently red gate is read as noise. The verdict
         # is 0 either way, so only the message can tell this branch from the one above it.
         ([pad[0]], pad + [stop_pkg], EXIT_FREE,
-         ("::warning::", "ghost", "test-only, so it does not decide this verdict"),
+         ("::warning::", "ghost", "test-only, so it does not decide this verdict",
+          "Every shipped component is in the free tier", "[test-only"), (),
          "a STOP licence that is test-only"),
+        # The hand-resolution table, which nothing reached until the deletion sweep showed its two
+        # output branches were both removable. It is the one part of the verdict that rests on
+        # somebody having read a licence, so it is also the part most worth a regression.
+        ([_unlicensed("xunit.abstractions", "2.0.3")],
+         pad + [_unlicensed("xunit.abstractions", "2.0.3")], EXIT_FREE,
+         ("Resolved by hand: xunit.abstractions@2.0.3 is Apache-2.0", "resolved by hand, was"),
+         (),
+         "a hand resolution naming a permissive licence"),
+        # The repo's actual state: a vendor EULA arriving through the test project only. PROPRIETARY
+        # is a STOP class, so this stays exit 0 solely because of scope -- and says so.
+        ([pad[0]], pad + [_unlicensed("Microsoft.Data.SqlClient.SNI.runtime", "6.0.2")], EXIT_FREE,
+         ("Resolved by hand: Microsoft.Data.SqlClient.SNI.runtime@6.0.2",
+          "NAMED, NOT APPROVED", "test-only, so it does not decide this verdict"), (),
+         "a hand-resolved vendor EULA that is test-only"),
+        # Same component shipped rather than test-only: naming a licence is not approving it.
+        ([_unlicensed("Microsoft.Data.SqlClient.SNI.runtime", "6.0.2")],
+         pad + [_unlicensed("Microsoft.Data.SqlClient.SNI.runtime", "6.0.2")], EXIT_STOP,
+         ("::error::STOP", "Microsoft.Data.SqlClient.SNI.runtime"), (),
+         "a hand-resolved vendor EULA that IS shipped"),
+        # THE BOM WINS. A hand resolution may only ever replace UNKNOWN; if it could overrule a
+        # declared expression it would be a way to silence a real finding, which is the opposite of
+        # what the table is for. This component has a hand entry saying Apache-2.0 and a BOM
+        # declaring GPL-3.0-only, and the GPL must win. The rule is already pinned at component
+        # level above; what was missing is the end-to-end half -- that it also survives scope
+        # assignment and reaches the exit code, and that the run does not SAY "resolved by hand"
+        # about a component whose licence the BOM named.
+        ([_licensed_version("xunit.abstractions", "2.0.3", "GPL-3.0-only")],
+         pad + [_licensed_version("xunit.abstractions", "2.0.3", "GPL-3.0-only")], EXIT_STOP,
+         ("::error::STOP", "xunit.abstractions"), ("resolved by hand, was",),
+         "a declared licence that a hand entry must not be able to override"),
     ):
         shipped_path, solution_path = _write(shipped_components), _write(solution_components)
         quiet, sys.stdout = sys.stdout, io.StringIO()
@@ -636,6 +684,10 @@ def self_test():
                 failures.append("the run on %s exited %r but never said %r, so the branch that "
                                 "says it is removable without any test noticing"
                                 % (case, actual, phrase))
+        for phrase in silent:
+            if phrase in spoken:
+                failures.append("the run on %s said %r, which it must never say for this input"
+                                % (case, phrase))
 
     # main()'s own argument handling, which nothing else reaches. A mis-invocation must be a hard
     # fail: a gate called with the wrong number of paths has measured nothing, and the one thing it
@@ -657,8 +709,10 @@ def self_test():
             failures.append("main() with %s returned exit %r, expected %r" % (case, actual, wanted))
         # A mis-invocation must say so. Exiting 2 in silence is indistinguishable from the BOM
         # guards, and the fix for the two is not the same.
-        if wanted == EXIT_NOT_MEASURED and "usage:" not in spoken:
-            failures.append("main() with %s exited %r without printing usage" % (case, actual))
+        if wanted == EXIT_NOT_MEASURED and ("usage:" not in spoken
+                                             or "--self-test" not in spoken):
+            failures.append("main() with %s exited %r without printing the full usage"
+                            % (case, actual))
 
     # Loader: the measurement guards must fire, and must not fire on a valid BOM.
     valid = {"bomFormat": "CycloneDX", "components": [{"name": "x", "version": "1"}]}

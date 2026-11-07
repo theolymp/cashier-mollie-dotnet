@@ -543,6 +543,26 @@ mutations, all caught, failed-check counts scattering 1 to 13: four of them trip
 so each has its own assertion rather than riding on a neighbour's. The message assertions also
 separated two mutations that until then produced the same signature.
 
+**Then the same question asked mechanically, which is the only way it should have been asked.**
+Deleting each `print` in `report()` and `main()` one at a time: **12 of 18 were removable with
+nothing noticing** -- the per-component itemisation, the "Measured: N components, M shipped" base
+set, both hand-resolution branches, the per-finding warning with licence and class, the reason a
+STOP fails the build, the reason a case-by-case does not, and the free-tier verdict line for the
+test-only path. A hard-red run could have stopped naming the packages it was red about. Now 1 of 18
+survives and it is a bare `print("")` for spacing, named here so it is a decision rather than a
+leftover. Required phrases per case, plus **forbidden** phrases, which is what catches a run saying
+"resolved by hand" about a component whose licence the BOM declared.
+
+Two things fell out of pinning those branches. Nothing had ever reached the hand-resolution table
+end to end, so there are now cases for a resolution in the permissive direction, the vendor EULA as
+it actually sits here (test-only, exit 0 **because of scope**, and it says so), the same component
+shipped (exit 3), and a declared licence that the table must not override. And a comment I wrote in
+the same commit claimed that last rule "lived in a comment and nothing tested it" -- **false**, it
+was pinned at component level all along, twelve lines above, with its own comment saying so. Caught
+before the commit by reading the mutation output instead of only its exit code: an assertion fired
+that I had not added. Three commits spent on statements that stopped matching the code, and the
+fix for the third nearly shipped a fourth.
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
