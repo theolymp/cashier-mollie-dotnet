@@ -120,9 +120,13 @@ public record OrderCreated<TKey>(long OrderId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
 /// <summary>
-/// RESERVED — no service dispatches this event; registering a handler has no effect.
-/// Intended meaning: an order has been fully processed.
+/// Dispatched when an order has been billed: the Managed engine charged an order item and wrote
+/// the order header for it. Carries the order id, so a handler can load the order and its items.
 /// </summary>
+/// <remarks>
+/// Reserved until 0.5.0, because nothing created an order header outside one-off charges. A
+/// handler registered before that never ran.
+/// </remarks>
 public record OrderProcessed<TKey>(long OrderId, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 

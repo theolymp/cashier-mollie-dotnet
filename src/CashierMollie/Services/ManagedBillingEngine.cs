@@ -1,3 +1,4 @@
+using System.Globalization;
 using CashierMollie.Data;
 using CashierMollie.Events;
 using CashierMollie.Interfaces;
@@ -235,6 +236,53 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
     /// <inheritdoc />
     /// <summary>
+    /// Fills in <see cref="Order{TKey}.Number"/> from the configured format, or leaves it null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>OrderNumberFormat</c> was one of the options documented as read by nothing. Wiring it is
+    /// additive: <c>Number</c> was previously **always** null, so no consumer can be relying on a
+    /// value, and the default format was already documented as its intended meaning.
+    /// </para>
+    /// <para>
+    /// <b>A bad format must not stop a billing run.</b> The value is consumer configuration, so it
+    /// can be malformed (<c>{1}</c>, an unbalanced brace) or longer than the column's 50
+    /// characters. Either would otherwise throw inside the charge loop -- after the money was
+    /// taken -- and the catch would report a failed payment for a successful charge. Both cases
+    /// log and leave the number null instead: an order without a number is a cosmetic gap, an
+    /// order rolled back after a charge is not.
+    /// </para>
+    /// </remarks>
+    private void AssignOrderNumber(Order<TKey> order)
+    {
+        const int numberColumnLength = 50;
+        if (string.IsNullOrWhiteSpace(_options.OrderNumberFormat))
+        {
+            return;
+        }
+
+        string formatted;
+        try
+        {
+            formatted = string.Format(
+                CultureInfo.InvariantCulture, _options.OrderNumberFormat, order.Id);
+        }
+        catch (FormatException)
+        {
+            LogOrderNumberFormatInvalid(order.Id);
+            return;
+        }
+
+        if (formatted.Length > numberColumnLength)
+        {
+            LogOrderNumberTooLong(order.Id, formatted.Length);
+            return;
+        }
+
+        order.Number = formatted;
+    }
+
+    /// <summary>
     /// Schedules a first order item for active subscriptions that have none.
     /// </summary>
     /// <remarks>
@@ -439,7 +487,55 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 };
                 _db.OrderItems.Add(nextItem);
 
+                // The order header for what was just billed. Until now the library's only
+                // `new Order<TKey>` was in ChargeBuilder, so the Managed engine created order
+                // *items* and never a header: Number never set, ProcessedAt never set, the
+                // order-processed event never dispatched, and the invoice seam with nothing to
+                // receive.
+                //
+                // ONE ORDER PER CHARGE, not per run. Each item is charged with its own Mollie
+                // payment, so an order that spanned several items could not name the payment that
+                // settles it. "Grouping" would be the aspirational version of what the engine
+                // actually does.
+                //
+                // The money columns mirror what was CHARGED, which is the only way the order and
+                // the payment can be reconciled:
+                //   Subtotal  gross, before the discount
+                //   Total     net, which is what Mollie was asked for
+                //   TotalDue  the same, until a webhook reports the payment paid
+                //   Tax       0, deliberately -- see below
+                //   CreditUsed 0, deliberately -- credit is a ledger nothing spends yet
+                //
+                // Tax is 0 and not `item.TaxAmount`: no billing path in this library adds tax to a
+                // charge. TaxPercentage exists on the item and nothing applies it, so a non-zero
+                // Tax here would describe money that was never collected and would make
+                // Total != what the payment is for.
+                var order = new Order<TKey>
+                {
+                    OwnerId = item.OwnerId,
+                    Currency = item.Currency,
+                    Subtotal = gross,
+                    Tax = 0m,
+                    Total = net,
+                    TotalDue = net,
+                    CreditUsed = 0m,
+                    MolliePaymentId = molliePayment.Id,
+                    MolliePaymentStatus = molliePayment.Status,
+                    ProcessedAt = now,
+                };
+                _db.Orders.Add(order);
+                // Through the navigation rather than the key, so one SaveChanges is enough: the
+                // order has no Id until it is inserted.
+                item.Order = order;
+
                 await _db.SaveChangesAsync(ct);
+
+                // Only now does the order have an Id, which both the number and the event need.
+                AssignOrderNumber(order);
+                await _db.SaveChangesAsync(ct);
+
+                await _eventDispatcher.DispatchAsync(
+                    new OrderProcessed<TKey>(order.Id, item.OwnerId), ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -470,6 +566,15 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no Mollie customer ID")]
     private partial void LogSkippedNoCustomer(long orderItemId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Order {OrderId} has no number: OrderNumberFormat is not a usable format string")]
+    private partial void LogOrderNumberFormatInvalid(long orderId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Order {OrderId} has no number: OrderNumberFormat produced {Length} characters "
+            + "and the column holds 50")]
+    private partial void LogOrderNumberTooLong(long orderId, int length);
 
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Scheduled a missing first order item for subscription {SubscriptionId}: it was "

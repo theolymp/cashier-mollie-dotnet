@@ -786,7 +786,7 @@ it in your `ICashierEventDispatcher`.
 | `RefundFailed<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `ChargebackReceived<TKey>` | A chargeback was received |
 | `OrderCreated<TKey>` | A new order was created |
-| `OrderProcessed<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
+| `OrderProcessed<TKey>` | Dispatched when the `Managed` engine has billed an order item and written the order header for it. Carries the order id. Never dispatched before 0.5.0, because nothing created an order header outside one-off charges. |
 | `OrderInvoiceAvailable<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 | `BalanceTurnedStale<TKey>` | ⚠️ **Never dispatched in this version.** Declared and unit-tested, but no code path raises it. Do not build on it. |
 
@@ -1095,7 +1095,7 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
-| `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | ⚠️ **Not read by this library.** Nothing builds an order number and `Number` is never populated. Slated for removal in the next major. |
+| `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | Format for `Order.Number`, `{0}` being the order ID. Read since 0.5.0, when the `Managed` engine began writing order headers. A value that is not a usable format string, or one longer than the 50-character column, leaves the number null and logs it rather than failing a billing run. Set it empty to omit order numbers. |
 | `PaymentMethodUpdateAmount` | `decimal(18,4)` | `0.01` | Amount for payment method update verification |
 | `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 

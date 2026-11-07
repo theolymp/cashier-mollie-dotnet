@@ -59,10 +59,18 @@ public class CashierMollieOptions
     public TimeSpan ProcessingInterval { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
-    /// NOT READ BY THIS LIBRARY — it builds no order number at all, so a value here changes
-    /// nothing in its behaviour. A consumer binding this section could still read it itself.
-    /// Intended meaning: format string for order numbers, {0} being the auto-increment order ID.
+    /// Format string for order numbers, <c>{0}</c> being the auto-increment order ID.
     /// </summary>
+    /// <remarks>
+    /// Read since 0.5.0, when the Managed engine began writing an order header. Before that
+    /// nothing built an order number and a value here changed nothing.
+    /// <para>
+    /// A value that is not a usable format string, or one producing more than the column's 50
+    /// characters, leaves the number null and logs it rather than failing the billing run: the
+    /// charge has already happened by then, and an order without a number is the smaller problem.
+    /// Set it empty to omit order numbers entirely.
+    /// </para>
+    /// </remarks>
     public string OrderNumberFormat { get; set; } = "ORD-{0:D6}";
 
     /// <summary>Amount charged for payment method update verification (zero-value mandate check). Default: 0.01 EUR.</summary>

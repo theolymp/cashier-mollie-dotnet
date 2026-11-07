@@ -38,7 +38,8 @@ public class PlannedEventsTests
         "MandateUpdated",
         "OrderInvoiceAvailable",
         "OrderPaymentFailedDueToInvalidMandate",
-        "OrderProcessed",
+        // OrderProcessed left this set in 0.5.0, when the Managed engine started writing an order
+        // header. Both directions are pinned, so wiring it up had to fail here first.
         "RefundFailed",
         "RefundProcessed",
     ];

@@ -49,7 +49,10 @@ public class OptionsSurfaceTests
     /// <see cref="EverySettableOption_IsReadSomewhere"/>.
     /// </summary>
     private static readonly string[] UnreadOptions =
-        ["ApiKey", "Locale", "OrderNumberFormat"];
+        // OrderNumberFormat left this set in 0.5.0, when the Managed engine began writing an order
+        // header and building a number from it. Both directions are pinned, so wiring it up had to
+        // fail here first -- which it did.
+        ["ApiKey", "Locale"];
 
     // Deliberately scoped to this library. An earlier marker read "nothing reads this setting" —
     // a claim about the world drawn from a measurement of one repository. A consumer binds this
