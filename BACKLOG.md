@@ -142,10 +142,54 @@ representation to drift. A value that will not parse is logged with the item id 
 ahead without it: only this library writes that column, so an unreadable value means something
 outside it changed the row, and losing the charge over metadata would be the worse failure.
 
-Still open, and it is a different gap: **an item is only scheduled on direct activation.** A
-subscription created through the first-payment checkout flow has no order item yet, so it has
-nothing to hang metadata on and nothing scheduled either. That belongs with the first-payment flow,
-not with metadata.
+**The scheduling half of that gap is closed (2026-11-07); the metadata half is not.**
+
+The gap was worse than "nowhere to hang metadata": an order item was created in exactly one place,
+`CreateSubscriptionAsync`, and only on its **direct-activation** branch. A subscription that went
+through the first-payment checkout flow is activated by the webhook instead -- `Active`,
+`CycleStartedAt`, `SubscriptionCreated` -- and **nothing ever scheduled anything for it.** On the
+`Managed` engine that is an active subscription that never bills, silently, for as long as it
+exists.
+
+`ProcessDueItemsAsync` now reconciles first: an **active** subscription with `EndsAt == null` and
+**zero order items** gets one scheduled, priced at 0 like the direct path, with `ProcessAt` derived
+from `CycleStartedAt` so the cycle is measured from the payment that started it rather than from
+whenever the timer noticed.
+
+Put there rather than in the webhook on purpose: `WebhookService` is engine-agnostic and holds
+neither the options nor a logger, so teaching it to schedule would change a **public constructor**
+-- and it would only help subscriptions activated after the change. A pass on the timer that
+already runs costs no new dependency and no public surface, and it **heals rows that are already
+stuck**. It is idempotent by construction, acting only where the item count is zero.
+
+**Zero items, not zero *unprocessed* items**, and that distinction is the whole correctness of it:
+a subscription billing normally always holds a processed item plus its successor, so it never
+matches. Pinned by a known-negative; widening the condition to "no unprocessed items" fails exactly
+that test and would bolt a spare item onto every healthy subscription between cycles.
+
+Required alongside it: an **unpriced** item (`gross <= 0`) is now skipped with a stated reason
+instead of being sent to Mollie as `0.00`. Before, Mollie rejected it, the catch dispatched
+`OrderPaymentFailed`, and the item -- never consumed -- came back every cycle forever, reporting a
+*failed payment* for something that was never a payment. The reconciliation pass creates such items
+deliberately, so the guard is part of this change and not an extra.
+
+**Still open, metadata half:** a subscription created through checkout has no metadata carrier.
+`SubscriptionOptions.Metadata` reaches the first payment and is not stored anywhere, so the
+reconciled item has nothing to inherit. Fixing it means a column on the subscription -- the same
+migration decision as the others, so it is Robin's.
+
+### A cycle discounted to zero is undecided, and deliberately left alone
+
+`gross > 0` with a coupon taking the whole amount is **not** the unpriced case and was not touched.
+Today it still sends `0.00` to Mollie, pinned by `ADiscountLargerThanTheChargeNeverProducesANegativeAmount`.
+
+The two defensible answers differ in who loses: treat the cycle as **fulfilled** (no payment, item
+consumed, coupon cycle spent, next item scheduled -- the customer had their free month), or treat
+it as **not chargeable** and wait. The second stalls the subscription forever on a 100% coupon,
+because the item is never consumed. Narrowing the guard to `gross` rather than `net` was the
+deliberate choice *not* to answer this as a side effect of a scheduling repair -- it would have
+redefined coupon semantics silently, and the existing test would have been edited to match, which
+is how that kind of change hides.
 
 Not covered: a run against Mollie's test mode. The request object is verified here; that the field
 survives the wire is not, and the credential for that lives in the secret store rather than

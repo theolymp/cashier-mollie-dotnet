@@ -234,9 +234,78 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// Schedules a first order item for active subscriptions that have none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The gap this closes.</b> An order item was created in exactly one place:
+    /// <c>CreateSubscriptionAsync</c>, and only on its direct-activation branch. A subscription
+    /// that went through the first-payment checkout flow is activated by the webhook instead --
+    /// which sets <c>Active</c> and <c>CycleStartedAt</c> and dispatches <c>SubscriptionCreated</c>
+    /// -- and nothing ever scheduled anything for it. On this engine that means an active
+    /// subscription that **never bills**, silently, for as long as it exists.
+    /// </para>
+    /// <para>
+    /// <b>Why here and not in the webhook.</b> The webhook service is engine-agnostic and holds
+    /// neither the options nor a logger, so teaching it to schedule would mean changing a public
+    /// constructor -- and it would still only help subscriptions activated after the change. A
+    /// pass on the timer that already runs costs no new dependency, no public surface, and heals
+    /// rows that are already stuck. It is also idempotent by construction: it acts only where the
+    /// count of order items is zero.
+    /// </para>
+    /// <para>
+    /// <b>Zero items is the discriminator, not zero unprocessed items.</b> A subscription billing
+    /// normally always has at least the processed item and its successor, so it never matches. A
+    /// subscription with no item at all can only have come from the path above.
+    /// </para>
+    /// <para>
+    /// <c>ProcessAt</c> is derived from <c>CycleStartedAt</c> rather than from now, so the first
+    /// cycle is measured from the payment that started it and not from whenever the timer happened
+    /// to notice. <c>UnitPrice</c> starts at 0, exactly as on the direct path -- pricing is the
+    /// consumer's, and an unpriced item is skipped rather than charged.
+    /// </para>
+    /// </remarks>
+    private async Task ScheduleMissingFirstItemsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        // EndsAt set means cancelled or in a grace period: no new cycle should be scheduled for it.
+        var stranded = await _db.Subscriptions
+            .Where(s => s.Status == SubscriptionStatus.Active
+                     && s.EndsAt == null
+                     && !_db.OrderItems.Any(i => i.SubscriptionId == s.Id))
+            .ToListAsync(ct);
+
+        if (stranded.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var subscription in stranded)
+        {
+            var start = subscription.CycleStartedAt ?? now;
+            _db.OrderItems.Add(new OrderItem<TKey>
+            {
+                SubscriptionId = subscription.Id,
+                OwnerId = subscription.OwnerId,
+                Description = $"{subscription.Plan} subscription",
+                Currency = _options.Currency,
+                UnitPrice = 0m,
+                // Subscription.Quantity is nullable and nothing in the library reads it for
+                // billing, so an absent value means "one" rather than "zero".
+                Quantity = subscription.Quantity is > 0 ? subscription.Quantity.Value : 1,
+                ProcessAt = start.AddDays(DefaultBillingIntervalDays),
+            });
+            LogScheduledMissingFirstItem(subscription.Id);
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task ProcessDueItemsAsync(CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
+
+        await ScheduleMissingFirstItemsAsync(now, ct);
 
         // Find all unprocessed OrderItems that are due
         var dueItems = await _db.OrderItems
@@ -276,6 +345,24 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             try
             {
                 decimal gross = item.UnitPrice * item.Quantity;
+
+                // An unpriced item is not a charge. UnitPrice starts at 0 by design -- pricing is
+                // the consumer's -- so this is the item waiting to be priced, not an amount owed.
+                // Without the guard it went to Mollie as 0.00, which Mollie rejects: the call
+                // threw, the catch dispatched OrderPaymentFailed, and the item (never consumed)
+                // came back every cycle forever. That reported a FAILED PAYMENT for something that
+                // was never a payment, and it is the state the reconciliation pass above now
+                // creates deliberately, so the guard is part of that change rather than an extra.
+                //
+                // Deliberately `gross`, NOT `net`: a priced item discounted to zero by a coupon is
+                // a different question -- the customer arguably had their cycle -- and answering
+                // it would silently redefine coupon semantics. Left exactly as it was; recorded as
+                // an open item instead.
+                if (gross <= 0m)
+                {
+                    LogSkippedNotPriced(item.Id);
+                    continue;
+                }
 
                 // The unit price and the quantity go in separately: both shipped handlers multiply
                 // by quantity themselves, so passing the gross would apply the quantity twice.
@@ -383,6 +470,16 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no Mollie customer ID")]
     private partial void LogSkippedNoCustomer(long orderItemId);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Scheduled a missing first order item for subscription {SubscriptionId}: it was "
+            + "active with no order items, which happens when the first-payment flow activated it")]
+    private partial void LogScheduledMissingFirstItem(long subscriptionId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Skipping order item {OrderItemId}: it still has the default price of 0, so "
+            + "there is nothing to charge. Set UnitPrice before it falls due")]
+    private partial void LogSkippedNotPriced(long orderItemId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: no valid mandate found")]
     private partial void LogSkippedNoMandate(long orderItemId);

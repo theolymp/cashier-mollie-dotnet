@@ -28,6 +28,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   tag is cut**; without one the publish fails loudly, where the API-key path it replaced would have
   produced a green run that published nothing whenever the secret was absent.
 
+### Fixed
+- **A subscription created through the first-payment checkout flow never billed on the `Managed`
+  engine.** Order items were created in one place and only on the direct-activation branch, so a
+  subscription activated by the webhook was `Active` with no order item and nothing to bill --
+  silently, for as long as it existed. `ProcessDueItemsAsync` now reconciles first: an active
+  subscription with no end date and **zero** order items gets one scheduled, priced at 0 like the
+  direct path, with `ProcessAt` derived from `CycleStartedAt` so the cycle is measured from the
+  payment that started it. Idempotent by construction, and it repairs subscriptions already in that
+  state rather than only new ones. Zero items is the condition, not zero *unprocessed* items: a
+  subscription billing normally always holds a processed item and its successor.
+- **An unpriced order item is no longer sent to Mollie as `0.00`.** `UnitPrice` starts at 0 by
+  design, and such an item was charged anyway: Mollie rejected it, the engine dispatched
+  `OrderPaymentFailed`, and the item -- never consumed -- returned every cycle forever, reporting a
+  failed payment for something that was never a payment. It is now skipped with a stated reason.
+  A *priced* item discounted to zero by a coupon is deliberately unchanged.
+
 ### Added
 - **`OrderItem.Discount` is now written when an item is charged**, so a discounted amount
   reconciles from the row (`UnitPrice * Quantity - Discount`) instead of only from the Mollie
