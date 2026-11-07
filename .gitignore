@@ -54,3 +54,7 @@ docs/
 # command, so run it locally instead of expecting a clone to carry it.
 .github/skills/
 .claude/
+
+# Python bytecode, produced when a tool imports the licence classifier as a module.
+__pycache__/
+*.pyc
