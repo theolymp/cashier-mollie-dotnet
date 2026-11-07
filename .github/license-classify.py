@@ -205,6 +205,13 @@ CASE_BY_CASE = {"LGPL", "EPL", "CDDL", "MS-PL", "MPL", UNKNOWN}
 EXIT_FREE, EXIT_CASE_BY_CASE, EXIT_NOT_MEASURED, EXIT_STOP = 0, 1, 2, 3
 
 
+# Set while the self-test drives main(). main() runs the self-test before doing anything, so
+# without this the self-test's own calls to main() would recurse forever. It exists so the cases
+# below can cross main()'s boundary rather than re-implementing what main() does with an exception,
+# which is the whole point of them.
+_SELF_TEST_RUNNING = False
+
+
 class NotMeasured(Exception):
     """Raised when no verdict can be formed. Never the same thing as a clean verdict."""
 
@@ -577,8 +584,11 @@ def self_test():
     stop_pkg = _licensed("ghost", "GPL-3.0-only")
     weak_pkg = _licensed("weak", "LGPL-2.1-only")
 
-    # A raise is mapped to EXIT_NOT_MEASURED here because that is what main() does with it. It is
-    # an outcome of its own, never interchangeable with one of the three verdicts.
+    # These go through main(), not report(). report() RAISES NotMeasured; the translation into
+    # exit 2 lives in main(), so a test that catches the exception and asserts "this means 2" is
+    # asserting its own belief about main() and would not notice main() returning 0 instead.
+    # Measured 2026-11-07: it would not have. The boundary of the tested region was in the wrong
+    # place -- same class as the discarded return value, one step further out.
     for shipped_components, solution_components, wanted, case in (
         # A shipped component missing from the solution BOM: fewer shipped than solution, so a
         # size check passes, and the component would never be classified.
@@ -597,11 +607,12 @@ def self_test():
     ):
         shipped_path, solution_path = _write(shipped_components), _write(solution_components)
         quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        global _SELF_TEST_RUNNING
+        _SELF_TEST_RUNNING = True
         try:
-            actual = report(shipped_path, solution_path)
-        except NotMeasured:
-            actual = EXIT_NOT_MEASURED
+            actual = main(["license-classify.py", shipped_path, solution_path])
         finally:
+            _SELF_TEST_RUNNING = False
             sys.stdout.close()
             sys.stdout = quiet
             os.unlink(shipped_path)
@@ -609,6 +620,26 @@ def self_test():
         if actual != wanted:
             failures.append("scope guard on %s returned exit %r, expected %r"
                             % (case, actual, wanted))
+
+    # main()'s own argument handling, which nothing else reaches. A mis-invocation must be a hard
+    # fail: a gate called with the wrong number of paths has measured nothing, and the one thing it
+    # must never do is look like a pass.
+    for argv, wanted, case in (
+        (["license-classify.py"], EXIT_NOT_MEASURED, "no arguments"),
+        (["license-classify.py", "only-one.json"], EXIT_NOT_MEASURED, "one argument"),
+        (["license-classify.py", "a", "b", "c"], EXIT_NOT_MEASURED, "too many arguments"),
+        (["license-classify.py", "--self-test"], EXIT_FREE, "--self-test"),
+    ):
+        quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        _SELF_TEST_RUNNING = True
+        try:
+            actual = main(argv)
+        finally:
+            _SELF_TEST_RUNNING = False
+            sys.stdout.close()
+            sys.stdout = quiet
+        if actual != wanted:
+            failures.append("main() with %s returned exit %r, expected %r" % (case, actual, wanted))
 
     # Loader: the measurement guards must fire, and must not fire on a valid BOM.
     valid = {"bomFormat": "CycloneDX", "components": [{"name": "x", "version": "1"}]}
@@ -656,7 +687,7 @@ def self_test():
 
 
 def main(argv):
-    if not self_test():
+    if not _SELF_TEST_RUNNING and not self_test():
         return 2
     if argv[1:] == ["--self-test"]:
         return 0

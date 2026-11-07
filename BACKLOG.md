@@ -499,6 +499,17 @@ same defect reported the same shape, and their framing is the sharper one -- the
 compare sizes, because the source list carried a count and no members, so the difference was not
 expressible there at all. Two sets of equal size can be disjoint.
 
+And one step further out, from the same peer exchange: those cases went through `report()`, but
+`report()` **raises** -- the translation into exit 2 lives in `main()`. A test that catches the
+exception and asserts "this means 2" asserts its own belief about `main()`. Measured rather than
+argued: sabotaging `main()`'s `except NotMeasured` to `return 0` left the previous commit's
+self-test **green**, and that is the worst mutation this file admits -- every unmeasurable BOM
+reported as a pass, "I read nothing" wearing the face of "nothing found". The cases now call
+`main()` (a reentrancy flag stops `main()`'s own self-test gate recursing), plus four cases for the
+argument handling nothing else reaches, because a gate invoked with the wrong number of paths has
+measured nothing and must not look like a pass. The lesson is not about this guard: **the boundary
+of the tested region is itself a claim, and it was in the wrong place twice in two commits.**
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like

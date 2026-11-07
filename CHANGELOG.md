@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   stays `0`. The case that was missing is the second one: a guard that answers "not measured" to
   every subset is never wrong and never useful, and the old assertion -- did an exception come out
   -- could not tell the two apart.
+- The same self-test now runs those cases through the script's **entry point** rather than through
+  `report()`, and covers the argument handling. `report()` raises; the translation into exit 2 is
+  `main()`'s, so nothing had ever exercised it. Sabotaging that handler to return 0 -- every
+  unmeasurable BOM reported as a pass -- left the previous self-test green.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job
