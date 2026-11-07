@@ -75,6 +75,21 @@ PERMISSIVE = re.compile(
 UNKNOWN = "UNKNOWN"
 PERMISSIVE_NAME = "permissive"
 
+# The one marker that escapes the PROPRIETARY class, and it is honoured ONLY in a hand resolution.
+#
+# A public-domain dedication fits no SPDX identifier: `blessing` is SQLite's "May you do good and
+# not evil" licence, whose text is absent from such a file, and CC0-1.0 is a legal instrument that
+# a plain dedication does not invoke. So there is nothing to write but a LicenseRef -- which the
+# PROPRIETARY pattern catches, and would classify a public-domain package as the exact opposite of
+# what it is.
+#
+# **It is deliberately not honoured when it comes out of a BOM.** `classify` leaves it
+# PROPRIETARY; only `classify_resolved` lets it through. Otherwise a package could declare this
+# marker about itself and buy a permissive verdict on its own word, which is precisely the kind of
+# exception that stops being a measurement. The marker means "someone read the file", and only this
+# table records that.
+PUBLIC_DOMAIN_MARKER = re.compile(r"^LicenseRef-PublicDomain\b", re.IGNORECASE)
+
 # Licenses this script cannot read out of the BOM, resolved by hand at the package itself.
 #
 # Keyed by (name, version) EXACTLY, and that is the whole design: a version bump drops out of the
@@ -119,6 +134,24 @@ RESOLVED_BY_HAND = {
     # here from the local package cache, same bytes. The nuspec also pins repository commit
     # 9c6f40725eee9f687e7d369a0bded64664ad38d2 -- an immovable ref, unlike xunit.abstractions,
     # whose declared licence URL points at a moving branch.
+    # Public domain, and the thinnest evidence of the round: LICENSE.txt is 61 characters --
+    # "SQLite is Public Domain" plus a link (sha256 99464c3a88df7b70, read from the nupkg). So the
+    # linked authority was read too, and states it in terms: "All of the code and documentation in
+    # SQLite has been dedicated to the public domain by the authors". Measured twice
+    # independently, from the network copy elsewhere in the fleet and from the local cache here.
+    #
+    # CAVEAT THAT MUST NOT BE DROPPED: the file speaks about **SQLite**, not about the
+    # **SourceGear build** of it. Compilation, any patches and the packaging are not addressed by
+    # it. Acceptable for a test-only dependency, which this is -- it arrives with the SQLite
+    # harness. If it ever appeared in the shipped set, someone would have to establish the
+    # provenance of that build, and this entry would not be enough.
+    ("SourceGear.sqlite3", "3.50.4.5"): (
+        "LicenseRef-PublicDomain-SQLite",
+        "LICENSE.txt in the nupkg is 61 chars, \"SQLite is Public Domain\" plus a link to "
+        "sqlite.org/copyright.html, which states the dedication in terms. NO SPDX id fits: the "
+        "blessing text is absent and CC0 is not invoked. Covers SQLite itself, NOT the provenance "
+        "of this particular build",
+    ),
     ("Mollie.Api", "4.18.0"): (
         "MIT",
         "read from LICENSE inside the nupkg (1089 chars, sha256 13e3f30c8400e4f3). Complete MIT "
@@ -180,6 +213,17 @@ def classify(expression):
     return ORDER[max(branch_ranks)]
 
 
+def classify_resolved(expression):
+    """Classify a value that came from RESOLVED_BY_HAND, where the reserved marker is honoured.
+
+    Separate from `classify` on purpose: the exception has to be unavailable to the thing being
+    judged. A BOM claiming the public-domain marker about its own component stays PROPRIETARY.
+    """
+    if PUBLIC_DOMAIN_MARKER.match(expression.strip()):
+        return PERMISSIVE_NAME
+    return classify(expression)
+
+
 def license_expressions(component):
     """Every license expression declared for one component, as written in the BOM."""
     found = []
@@ -214,7 +258,8 @@ def component_verdict(component):
     resolved = RESOLVED_BY_HAND.get((component.get("name"), component.get("version")))
     if resolved is not None and verdict == UNKNOWN:
         license_name = resolved[0]
-        return classify(license_name), "%s (resolved by hand, was %r)" % (license_name, shown)
+        return (classify_resolved(license_name),
+                "%s (resolved by hand, was %r)" % (license_name, shown))
     return verdict, shown
 
 
@@ -358,6 +403,23 @@ def self_test():
     expect("LicenseRef-Anything-At-All", "PROPRIETARY")   # the prefix, not the vendor's name
     expect("MIT AND LicenseRef-Vendor", "PROPRIETARY")    # both apply, the conditional one binds
     expect("MIT OR LicenseRef-Vendor", PERMISSIVE_NAME)   # a choice, so take the MIT branch
+    # The public-domain marker is NOT honoured from a BOM: a package cannot clear itself.
+    expect("LicenseRef-PublicDomain-SQLite", "PROPRIETARY")
+
+    # ... and IS honoured from a hand resolution, where someone read the file. Both directions,
+    # because an exception carved into a pattern is otherwise the one part nothing checks.
+    for expression, wanted in (
+        ("LicenseRef-PublicDomain-SQLite", PERMISSIVE_NAME),
+        ("LicenseRef-PublicDomain", PERMISSIVE_NAME),
+        ("LicenseRef-PublicDomainish-Vendor", "PROPRIETARY"),  # the \b, or this would slip through
+        ("LicenseRef-Vendor-X", "PROPRIETARY"),
+        ("MIT", PERMISSIVE_NAME),
+        ("GPL-3.0-only", "GPL"),
+    ):
+        actual = classify_resolved(expression)
+        if actual != wanted:
+            failures.append("classify_resolved(%r) = %r, expected %r"
+                            % (expression, actual, wanted))
 
     # Known-negative: these must NOT come out permissive.
     expect("Unknown - See URL", UNKNOWN)
@@ -405,6 +467,14 @@ def self_test():
           "licenses": [{"license": {"name": "Unknown - See URL"}}]}, "PROPRIETARY"),
         ({"name": "Microsoft.Data.SqlClient.SNI.runtime", "version": "6.0.3",
           "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
+        # A read public-domain dedication clears, at its exact version.
+        ({"name": "SourceGear.sqlite3", "version": "3.50.4.5",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, PERMISSIVE_NAME),
+        ({"name": "SourceGear.sqlite3", "version": "3.50.4.6",
+          "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
+        # And a component that declares the marker ITSELF does not clear: the BOM is not a reader.
+        ({"name": "Self.Declared", "version": "1",
+          "licenses": [{"expression": "LicenseRef-PublicDomain-Totally"}]}, "PROPRIETARY"),
     ):
         actual = component_verdict(component)[0]
         if actual != wanted:

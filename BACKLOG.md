@@ -399,9 +399,30 @@ kind of problem. Measured with four injected findings at once: it reports `PROPR
 worst and lists only the two blocking ones, leaving the weak-copyleft and unnameable ones out of
 that list.
 
-Open, and not a tooling job: `SourceGear.sqlite3` 3.50.4.5 is still unnameable. It is **test-only**
-and arrives with the SQLite harness, so it does not decide the verdict -- but it is the one package
-here nobody has read, and the gate will keep naming it until someone does.
+**Every licence in this repository has now been read** (2026-11-07). `SourceGear.sqlite3`
+3.50.4.5, the last one, is **public domain** -- and it is the case that proved a caveat written two
+hours earlier rather than a routine close.
+
+Its `LICENSE.txt` is 61 characters: "SQLite is Public Domain" plus a link (sha256
+`99464c3a88df7b70`). Thin enough that the linked authority was read too, which states the
+dedication in terms. **No SPDX identifier fits:** `blessing` is SQLite's "do good and not evil"
+licence and that text is absent, and CC0-1.0 is a legal instrument a plain dedication does not
+invoke. So the only thing writable is a `LicenseRef-` -- which the `PROPRIETARY` pattern catches,
+and would have classified a public-domain package as **the exact opposite of what it is.** The
+caveat on that class said the prefix proves only "not an SPDX identifier"; this is what that
+looked like in practice.
+
+Hence a reserved marker, `LicenseRef-PublicDomain`, with one property worth keeping: **it is
+honoured only in a hand resolution, never from a BOM.** A package declaring that marker about
+itself stays `PROPRIETARY`, because the marker means "someone read the file" and only the
+resolution table records that -- an exception a component can assert about itself is not a
+measurement. Pinned in both directions, including `LicenseRef-PublicDomainish-Vendor` staying
+proprietary, since an exception carved into a pattern is otherwise the one part nothing checks.
+
+Caveat that travels with the entry: the file speaks about **SQLite**, not about the **SourceGear
+build** of it -- compilation, patches and packaging are not addressed. Acceptable for a test-only
+dependency, which this is. In the shipped set someone would have to establish that build's
+provenance, and this entry would not be enough.
 
 ### Trusted publishing: workflow switched, policy not yet created (blocks the next release)
 
