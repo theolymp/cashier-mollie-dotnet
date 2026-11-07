@@ -31,6 +31,7 @@ two groups: `MIT AND <unnameable>` cannot be concluded, while `GPL-3.0 AND <unna
 is, and `GPL-2.0 OR <unnameable>` cannot be, because the branch we would pick is the one we cannot
 read.
 """
+import io
 import json
 import os
 import re
@@ -589,37 +590,52 @@ def self_test():
     # asserting its own belief about main() and would not notice main() returning 0 instead.
     # Measured 2026-11-07: it would not have. The boundary of the tested region was in the wrong
     # place -- same class as the discarded return value, one step further out.
-    for shipped_components, solution_components, wanted, case in (
+    # Each case also pins what the run SAYS, because an exit code cannot distinguish two branches
+    # that return the same number. Measured 2026-11-07: deleting the test-only STOP warning
+    # entirely left this self-test green, and that warning is the only thing that surfaces a vendor
+    # EULA sitting in the test tree -- which is exactly the state this repo is in. A branch no test
+    # tells apart looks like a safeguard and is not one.
+    for shipped_components, solution_components, wanted, says, case in (
         # A shipped component missing from the solution BOM: fewer shipped than solution, so a
         # size check passes, and the component would never be classified.
         ([pad[0], stop_pkg], pad, EXIT_NOT_MEASURED,
+         ("NOT MEASURED", "ghost@1", "never be classified"),
          "a shipped component absent from the solution BOM"),
         # The honest shape: shipped is a subset of the solution. The guard must stay quiet -- and
         # the run must still reach a verdict, in every tier.
-        ([pad[0]], pad, EXIT_FREE, "an all-permissive subset"),
-        ([stop_pkg], pad + [stop_pkg], EXIT_STOP, "a STOP licence inside an honest subset"),
+        ([pad[0]], pad, EXIT_FREE, ("free tier",), "an all-permissive subset"),
+        ([stop_pkg], pad + [stop_pkg], EXIT_STOP, ("::error::STOP", "ghost"),
+         "a STOP licence inside an honest subset"),
         ([weak_pkg], pad + [weak_pkg], EXIT_CASE_BY_CASE,
+         ("documented decision", "LGPL", "weak"),
          "a case-by-case licence inside an honest subset"),
         # Scope, the other direction: a STOP licence present in the solution but NOT shipped keeps
         # the verdict free. Without this the gate goes permanently red for a test dependency this
-        # package does not redistribute, and a permanently red gate is read as noise.
-        ([pad[0]], pad + [stop_pkg], EXIT_FREE, "a STOP licence that is test-only"),
+        # package does not redistribute, and a permanently red gate is read as noise. The verdict
+        # is 0 either way, so only the message can tell this branch from the one above it.
+        ([pad[0]], pad + [stop_pkg], EXIT_FREE,
+         ("::warning::", "ghost", "test-only, so it does not decide this verdict"),
+         "a STOP licence that is test-only"),
     ):
         shipped_path, solution_path = _write(shipped_components), _write(solution_components)
-        quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        quiet, sys.stdout = sys.stdout, io.StringIO()
         global _SELF_TEST_RUNNING
         _SELF_TEST_RUNNING = True
         try:
             actual = main(["license-classify.py", shipped_path, solution_path])
         finally:
             _SELF_TEST_RUNNING = False
-            sys.stdout.close()
-            sys.stdout = quiet
+            spoken, sys.stdout = sys.stdout.getvalue(), quiet
             os.unlink(shipped_path)
             os.unlink(solution_path)
         if actual != wanted:
             failures.append("scope guard on %s returned exit %r, expected %r"
                             % (case, actual, wanted))
+        for phrase in says:
+            if phrase not in spoken:
+                failures.append("the run on %s exited %r but never said %r, so the branch that "
+                                "says it is removable without any test noticing"
+                                % (case, actual, phrase))
 
     # main()'s own argument handling, which nothing else reaches. A mis-invocation must be a hard
     # fail: a gate called with the wrong number of paths has measured nothing, and the one thing it
@@ -630,16 +646,19 @@ def self_test():
         (["license-classify.py", "a", "b", "c"], EXIT_NOT_MEASURED, "too many arguments"),
         (["license-classify.py", "--self-test"], EXIT_FREE, "--self-test"),
     ):
-        quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        quiet, sys.stdout = sys.stdout, io.StringIO()
         _SELF_TEST_RUNNING = True
         try:
             actual = main(argv)
         finally:
             _SELF_TEST_RUNNING = False
-            sys.stdout.close()
-            sys.stdout = quiet
+            spoken, sys.stdout = sys.stdout.getvalue(), quiet
         if actual != wanted:
             failures.append("main() with %s returned exit %r, expected %r" % (case, actual, wanted))
+        # A mis-invocation must say so. Exiting 2 in silence is indistinguishable from the BOM
+        # guards, and the fix for the two is not the same.
+        if wanted == EXIT_NOT_MEASURED and "usage:" not in spoken:
+            failures.append("main() with %s exited %r without printing usage" % (case, actual))
 
     # Loader: the measurement guards must fire, and must not fire on a valid BOM.
     valid = {"bomFormat": "CycloneDX", "components": [{"name": "x", "version": "1"}]}

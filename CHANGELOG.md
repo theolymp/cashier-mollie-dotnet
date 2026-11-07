@@ -39,6 +39,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `report()`, and covers the argument handling. `report()` raises; the translation into exit 2 is
   `main()`'s, so nothing had ever exercised it. Sabotaging that handler to return 0 -- every
   unmeasurable BOM reported as a pass -- left the previous self-test green.
+- Every licence-gate case now pins the run's **output** as well as its exit code, and a
+  mis-invocation must print usage. An exit code cannot separate two branches that return the same
+  number: deleting the warning that reports a stop-tier licence in the test tree left the self-test
+  green, and that warning is the only signal that a vendor EULA is present at all. Eight mutations
+  are caught, none of them tripping every check.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job

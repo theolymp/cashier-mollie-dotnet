@@ -531,6 +531,18 @@ argument handling nothing else reaches, because a gate invoked with the wrong nu
 measured nothing and must not look like a pass. The lesson is not about this guard: **the boundary
 of the tested region is itself a claim, and it was in the wrong place twice in two commits.**
 
+**Third layer, and the one with a consequence for this repo: an exit code cannot tell two branches
+apart that return the same number.** Deleting the test-only STOP warning *entirely* left the
+self-test green -- measured, not supposed. That warning is the only thing that surfaces a vendor
+EULA sitting in the test tree, which is precisely the state this repo is in
+(`Microsoft.Data.SqlClient.SNI.runtime`). Lose it and the gate still exits 0, every check still
+passes, and nobody learns that a proprietary licence is present. So every case now pins **what the
+run says** as well as what it returns, and a mis-invocation has to print usage, because exiting 2
+in silence is indistinguishable from the BOM guards and the two have different fixes. Eight
+mutations, all caught, failed-check counts scattering 1 to 13: four of them trip exactly one check,
+so each has its own assertion rather than riding on a neighbour's. The message assertions also
+separated two mutations that until then produced the same signature.
+
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
