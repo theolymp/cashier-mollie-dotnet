@@ -700,6 +700,14 @@ through `main()` and pins the phrase each one must say; five sabotages (always-a
 dropped, unknown state read as active, the four causes collapsed into one message, age window
 ignored) each turn it red with disjoint signatures, against a baseline measured green first.
 
+**Reading the verdict from outside, without a login:** the step is green for alive, for unclear
+and for not-measured alike -- three tiers, one colour, which is the very confusion this entry is
+about. The discriminator is annotations, which the API serves unauthenticated while job logs need
+a token: tier 3 fails the job, tiers 1 and 2 emit `::warning::` and therefore appear in
+`/repos/.../check-runs/<job-id>/annotations`, and tier 0 emits nothing. So green **plus no
+liveness annotation** is "measured alive". Verified that way on `84e53e0`: four annotations, all
+of them the licence gate's known two plus two runner notices, none from this check.
+
 **Open, and structural:** the check runs inside the workflow it measures. GitHub's documentation
 does not say whether automatic disabling also stops `push` and `pull_request`. If it does, no run
 exists to report it — the symptom is then a commit with no checks at all, not a red one. The only
