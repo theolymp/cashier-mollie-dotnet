@@ -29,6 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   stops being read. `2` and `3` are deliberately distinct, so "the licence is refused" cannot be
   confused with "the gate knows nothing". Scope is unchanged: only shipped components decide the
   code, and a test-only stop licence is reported loudly without failing.
+- The licence gate's self-test asserts the **verdict** its scope guard returns, not just whether
+  the guard refused. A shipped component absent from the solution BOM is `2`; an honest subset
+  still reaches `0`, `1` or `3` on its own merits; a stop licence that is only in the solution
+  stays `0`. The case that was missing is the second one: a guard that answers "not measured" to
+  every subset is never wrong and never useful, and the old assertion -- did an exception come out
+  -- could not tell the two apart.
 
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job

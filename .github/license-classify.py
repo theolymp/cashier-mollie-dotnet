@@ -558,7 +558,10 @@ def self_test():
             failures.append("component_verdict(%r) = %r, expected %r"
                             % (component, actual, wanted))
 
-    # The superset guard, both ways. A count comparison passed the first of these.
+    # The scope guard, in both directions AND on the verdict it returns. A count comparison
+    # passed the first of these cases. Asserting only "did it raise" would have passed the
+    # comfortable repair -- routing every subset to NOT MEASURED -- which is a guard that
+    # never lies and also never decides anything.
     import tempfile as _tempfile
     def _write(components):
         handle = _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
@@ -568,31 +571,44 @@ def self_test():
 
     pad = [{"name": "pad%d" % i, "version": "1",
             "licenses": [{"license": {"id": "MIT"}}]} for i in range(5)]
-    only_in_shipped = {"name": "ghost", "version": "1",
-                       "licenses": [{"license": {"id": "GPL-3.0-only"}}]}
-    for shipped_components, solution_components, should_fail in (
+    def _licensed(name, identifier):
+        return {"name": name, "version": "1", "licenses": [{"license": {"id": identifier}}]}
+
+    stop_pkg = _licensed("ghost", "GPL-3.0-only")
+    weak_pkg = _licensed("weak", "LGPL-2.1-only")
+
+    # A raise is mapped to EXIT_NOT_MEASURED here because that is what main() does with it. It is
+    # an outcome of its own, never interchangeable with one of the three verdicts.
+    for shipped_components, solution_components, wanted, case in (
         # A shipped component missing from the solution BOM: fewer shipped than solution, so a
         # size check passes, and the component would never be classified.
-        ([pad[0], only_in_shipped], pad, True),
-        # The honest shape: shipped is a subset.
-        ([pad[0]], pad, False),
+        ([pad[0], stop_pkg], pad, EXIT_NOT_MEASURED,
+         "a shipped component absent from the solution BOM"),
+        # The honest shape: shipped is a subset of the solution. The guard must stay quiet -- and
+        # the run must still reach a verdict, in every tier.
+        ([pad[0]], pad, EXIT_FREE, "an all-permissive subset"),
+        ([stop_pkg], pad + [stop_pkg], EXIT_STOP, "a STOP licence inside an honest subset"),
+        ([weak_pkg], pad + [weak_pkg], EXIT_CASE_BY_CASE,
+         "a case-by-case licence inside an honest subset"),
+        # Scope, the other direction: a STOP licence present in the solution but NOT shipped keeps
+        # the verdict free. Without this the gate goes permanently red for a test dependency this
+        # package does not redistribute, and a permanently red gate is read as noise.
+        ([pad[0]], pad + [stop_pkg], EXIT_FREE, "a STOP licence that is test-only"),
     ):
         shipped_path, solution_path = _write(shipped_components), _write(solution_components)
         quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
         try:
-            report(shipped_path, solution_path)
-            failed = False
+            actual = report(shipped_path, solution_path)
         except NotMeasured:
-            failed = True
+            actual = EXIT_NOT_MEASURED
         finally:
             sys.stdout.close()
             sys.stdout = quiet
             os.unlink(shipped_path)
             os.unlink(solution_path)
-        if failed != should_fail:
-            failures.append(
-                "superset guard %s" % ("missed a shipped component absent from the solution BOM"
-                                       if should_fail else "rejected a valid subset"))
+        if actual != wanted:
+            failures.append("scope guard on %s returned exit %r, expected %r"
+                            % (case, actual, wanted))
 
     # Loader: the measurement guards must fire, and must not fire on a valid BOM.
     valid = {"bomFormat": "CycloneDX", "components": [{"name": "x", "version": "1"}]}

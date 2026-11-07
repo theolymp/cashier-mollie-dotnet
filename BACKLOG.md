@@ -486,11 +486,21 @@ exactly the half of the verdict that gates. The guard against that compared **si
 (`len(solution) < len(shipped)`), which passes at 9 shipped against 58 in the solution while one of
 those 9 is missing. A sabotage run produced that state by accident and an injected `GPL-3.0-only`
 in the shipped BOM came back **exit 0**. Now a set difference: any shipped key absent from the
-solution BOM is "not measured", pinned in the self-test in both directions, because the size check
-passed the first of those cases.
+solution BOM is "not measured", because the size check passed the first of those cases.
+
+The self-test now asserts the **exit code** of that guard, not merely whether it raised. Asserting
+"did it refuse" would have passed the comfortable repair -- routing every subset to NOT MEASURED --
+which never lies and also never decides anything. Five cases: the missing shipped key is `2`, an
+all-permissive subset is `0`, a STOP licence inside an honest subset is still `3`, a case-by-case
+one is still `1`, and a STOP licence that is only in the solution stays `0` because this package
+does not ship it. Two sabotages, caught by disjoint sets of those cases: the count comparison trips
+only the first, the route-everything-to-2 repair only the other four. The peer session that hit the
+same defect reported the same shape, and their framing is the sharper one -- the guard *could* only
+compare sizes, because the source list carried a count and no members, so the difference was not
+expressible there at all. Two sets of equal size can be disjoint.
 
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
-zero-component BOM, a BOM that is not CycloneDX, a solution BOM smaller than the shipped one, an
+zero-component BOM, a BOM that is not CycloneDX, a shipped component absent from the solution BOM, an
 absent `python3`, or a failed classifier self-test. "I read nothing" must not be able to look like
 "nothing found". Verified by sabotage in both directions: an injected `GPL-3.0-only` component in
 the shipped BOM is reported as blocking copyleft (exit 1); a truncated BOM, a zero-component BOM
