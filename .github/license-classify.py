@@ -185,8 +185,12 @@ def _rank(name):
     return ORDER.index(name)
 
 
-def _classify_atom(expression):
+def _classify_atom(expression, resolved=False):
     """One license expression with no OR and no AND left in it."""
+    # Only on the resolved path, and checked before the classes so the PROPRIETARY pattern does not
+    # claim it first. See PUBLIC_DOMAIN_MARKER for why a BOM never gets this.
+    if resolved and PUBLIC_DOMAIN_MARKER.match(expression.strip()):
+        return PERMISSIVE_NAME
     for name, pattern, _ in CLASSES:
         if re.search(pattern, expression, re.IGNORECASE):
             return name
@@ -195,8 +199,16 @@ def _classify_atom(expression):
     return UNKNOWN
 
 
-def classify(expression):
-    """Classify one license expression, honouring OR as a choice and AND as a conjunction."""
+def classify(expression, resolved=False):
+    """Classify one license expression, honouring OR as a choice and AND as a conjunction.
+
+    `resolved` marks a value that came out of RESOLVED_BY_HAND, and it has to be threaded all the
+    way down to the atoms rather than checked on the whole string: a resolution written as a
+    bundle, `MIT AND LicenseRef-PublicDomain-SQLite`, would otherwise miss an anchored match on the
+    front and fall through to the untrusted path, where the marker is PROPRIETARY and a conjunction
+    takes the strongest atom. The entry would then report the opposite of what someone read. No
+    entry is a bundle today; this is cheaper than the comment explaining why it must not become one.
+    """
     cleaned = expression.replace("(", " ").replace(")", " ").strip()
     if not cleaned:
         return UNKNOWN
@@ -208,7 +220,7 @@ def classify(expression):
             branch_ranks.append(_rank(UNKNOWN))
             continue
         # Everything in a branch applies at once, so the strongest atom decides the branch.
-        branch_ranks.append(min(_rank(_classify_atom(atom)) for atom in atoms))
+        branch_ranks.append(min(_rank(_classify_atom(atom, resolved)) for atom in atoms))
     # The branches are alternatives we may pick from, so the weakest branch decides.
     return ORDER[max(branch_ranks)]
 
@@ -219,9 +231,7 @@ def classify_resolved(expression):
     Separate from `classify` on purpose: the exception has to be unavailable to the thing being
     judged. A BOM claiming the public-domain marker about its own component stays PROPRIETARY.
     """
-    if PUBLIC_DOMAIN_MARKER.match(expression.strip()):
-        return PERMISSIVE_NAME
-    return classify(expression)
+    return classify(expression, resolved=True)
 
 
 def license_expressions(component):
@@ -412,6 +422,11 @@ def self_test():
         ("LicenseRef-PublicDomain-SQLite", PERMISSIVE_NAME),
         ("LicenseRef-PublicDomain", PERMISSIVE_NAME),
         ("LicenseRef-PublicDomainish-Vendor", "PROPRIETARY"),  # the \b, or this would slip through
+        # Threaded through the algebra, not matched on the whole string: a bundle resolution would
+        # otherwise miss the anchor and be judged on the untrusted path.
+        ("MIT AND LicenseRef-PublicDomain-SQLite", PERMISSIVE_NAME),
+        ("LicenseRef-PublicDomain-SQLite AND MIT", PERMISSIVE_NAME),
+        ("GPL-3.0-only AND LicenseRef-PublicDomain-SQLite", "GPL"),
         ("LicenseRef-Vendor-X", "PROPRIETARY"),
         ("MIT", PERMISSIVE_NAME),
         ("GPL-3.0-only", "GPL"),
