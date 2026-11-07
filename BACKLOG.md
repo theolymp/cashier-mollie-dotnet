@@ -345,6 +345,39 @@ step passing with a useless verdict.
 Open, and not a tooling job: the three unnameable licenses have to be read off the packages
 themselves. Nothing above replaces that, and the gate will keep naming them until someone does.
 
+### Trusted publishing: workflow switched, policy not yet created (blocks the next release)
+
+Decided by the maintainer on 2026-11-07: *"Ja, umstellen"* -- OIDC instead of a long-lived
+`NUGET_API_KEY`. The workflow half is done. **The nuget.org half is not, and until it is, a tag
+would fail to publish.**
+
+What has to exist before a tag is cut, and these are the exact values the policy needs -- the
+workflow filename is matched literally, so a near-miss reads as "no matching policy":
+
+| Field | Value |
+|---|---|
+| Repository Owner | `theolymp` |
+| Repository | `cashier-mollie-dotnet` |
+| Workflow File | `ci.yml` |
+| Environment | `release` |
+
+`ci.yml` and not a separate `publish.yml`, deliberately: the publish job carries
+`needs: build-and-test`, which is what keeps an untested commit from being released. Splitting it
+into its own workflow would buy a tidier filename and lose that.
+
+Also required: a GitHub Environment named `release` holding one secret, `NUGET_USER`, set to the
+nuget.org **profile name** (not the e-mail address). Worth attaching a required reviewer to that
+environment while creating it -- it turns "publish only after a go-ahead" from a convention into
+something the runner enforces, and a NuGet version number cannot be withdrawn.
+
+The old `NUGET_API_KEY` secret is deliberately left in place, unused. Removing it is a one-way
+door and it costs nothing to keep until a release has gone out on the new path.
+
+Failure modes, so neither is mistaken for the other: no policy means `NuGet/login` fails and the
+run goes red, which is correct. The path this replaced failed the other way -- it carried
+`if: env.NUGET_API_KEY != ''`, so a tag with no secret configured produced a **green run that
+published nothing**.
+
 ### Scheduled scanning was added, and can be disabled silently
 
 A weekly `schedule:` trigger now runs build, test and scan without a push, because the advisory

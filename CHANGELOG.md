@@ -20,6 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   more than four decimal places -- nothing in 0.4.0 could produce one. **A migration is required**;
   see "Upgrading to 0.5.0" in the README for the per-provider effect.
 
+### Changed -- release plumbing
+- Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job
+  exchanges a short-lived credential through `NuGet/login` and runs in a `release` environment,
+  where a required reviewer can gate it. `packages: write` is gone -- nothing here pushes to GitHub
+  Packages, only to api.nuget.org. **A trusted-publishing policy has to exist on nuget.org before a
+  tag is cut**; without one the publish fails loudly, where the API-key path it replaced would have
+  produced a green run that published nothing whenever the secret was absent.
+
 ### Added
 - **`OrderItem.Discount` is now written when an item is charged**, so a discounted amount
   reconciles from the row (`UnitPrice * Quantity - Discount`) instead of only from the Mollie

@@ -163,12 +163,27 @@ jobs:
           CASHIERMOLLIE_TEST_SQLSERVER: "Server=127.0.0.1,1433;Database=master;User Id=sa;Password=Cashier_ci_pw1;TrustServerCertificate=True"
         run: dotnet test --no-build --configuration Release --verbosity normal
 
+  # PRECONDITION, and it is the whole risk of this job: nuget.org must carry a trusted-publishing
+  # policy for this repository before a tag is cut. Owner theolymp, repository
+  # cashier-mollie-dotnet, workflow file ci.yml, environment release. Without it NuGet/login fails
+  # and nothing is published -- loudly, which is the point. The API-key path it replaced had the
+  # opposite failure mode: it carried `if: env.NUGET_API_KEY != ''`, so a tag with no secret
+  # configured produced a green run that published nothing at all.
   publish:
     needs: build-and-test
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    # Not decoration. The environment is where a required reviewer is attached, which turns "only
+    # publish after a go-ahead" from a convention into something the runner enforces -- and a
+    # NuGet version number is permanent, so that gate is worth having in the mechanism.
+    environment: release
     permissions:
-      packages: write
+      # The OIDC token NuGet/login exchanges for a short-lived key. Without it the login fails 403.
+      id-token: write
+      # Stated explicitly because naming any permission drops the defaults for the rest. The
+      # previous `packages: write` is gone: nothing here pushes to GitHub Packages, only to
+      # api.nuget.org, so it granted a scope this job never used.
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -180,8 +195,16 @@ jobs:
       - name: Pack
         run: dotnet pack src/CashierMollie/CashierMollie.csproj --configuration Release --output ./nupkg
 
+      # Deliberately after Pack and immediately before the push: the exchanged key is short-lived,
+      # and a login that sits an hour ahead of the thing it authorises is a failure waiting for a
+      # slow build.
+      - name: NuGet login (OIDC)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          # The nuget.org PROFILE NAME, not the e-mail address. An environment secret rather than
+          # a literal so the account it publishes as is not readable from a public workflow.
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
-        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-        if: env.NUGET_API_KEY != ''
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
