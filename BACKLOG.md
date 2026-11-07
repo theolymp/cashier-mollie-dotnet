@@ -395,11 +395,28 @@ in use -- `xunit.abstractions` becomes permissive, SqlClient.SNI becomes a block
 `<unnameable> AND MIT`, a direction that broke the same classification elsewhere by falling through
 to whichever side happened to be written first.
 
-**The license verdict is advisory, and the condition for making it blocking is a state, not a
-date:** it flips when every component in the shipped BOM classifies as **permissive** -- and
-**since 2026-11-07 that condition is MET.** All 8 shipped components are permissive; the run says
-so on every pass. What remains is not a measurement but the policy question below, so the flip is
-deliberately left to whoever answers that. The script announces that condition on every green run instead of leaving it
+**The licence verdict now blocks, in three tiers (decided 2026-11-07).** The exit code *is* the
+tier: `0` free (permissive plus `MPL-2.0`), `1` case-by-case (LGPL, EPL, CDDL, MS-PL, MPL-1.x,
+UNKNOWN) reported without failing, `2` **not measured**, `3` **stop** (GPL, AGPL, SSPL, BUSL,
+PROPRIETARY). Only `2` and `3` fail the build.
+
+Two tiers were the structural defect this replaces: with permissive-or-finding, an LGPL dependency
+that policy wants *documented* produced the same yellow as an AGPL one that policy wants *stopped*,
+and a signal that cannot tell those apart stops being read.
+
+**The gap between `2` and `3` is load-bearing.** Reusing `2` for a policy stop would make "red
+because the licence is refused" indistinguishable from "red because the gate knows nothing" --
+opposite problems with opposite fixes. Case-by-case keeps `1` so a caller that has not been updated
+meets an unknown `3` on a stop licence and fails hard rather than reading it as yellow.
+
+`MPL-2.0` is free while the MPL family is not, so the narrower rule is consulted first and anchored
+at **both** ends: `MPL-2.0-no-copyleft-exception` is a different SPDX licence and stays
+case-by-case. Same shape as the missing `\b` that would have read "MITRE" as MIT. All five cases
+measured: `GPL-3.0-only`→3, `LGPL-2.1-only`→1, `MPL-2.0`→0, `MPL-1.1`→1,
+`MPL-2.0-no-copyleft-exception`→1, and a truncated BOM→2.
+
+Every class is asserted to belong to exactly one tier, so adding a class and forgetting to tier it
+is a failed self-test rather than a finding no branch reports. The script announces that condition on every green run instead of leaving it
 in a comment nobody reads on the day it comes true -- a date in exactly this area has already been
 missed by three weeks once in this fleet.
 
@@ -413,7 +430,12 @@ is permissive. Only the sentence was wrong, and that is the worse half, because 
 what a reader acts on. Found by a peer describing a different gap in their own version of this
 check, which is the argument for saying out loud what your gate's condition is.
 
-**The flip also carries an undecided policy choice, and it is not this repository's to make.**
+**That policy question is answered (2026-11-07) and implemented above.** What follows is kept
+because the shape of the question outlived it: a threshold that reads as a measurement can decide a
+policy nobody chose, and "it costs nothing today" is how such a choice reaches whoever is standing
+there when it finally bites.
+
+~~**The flip also carries an undecided policy choice, and it is not this repository's to make.**~~
 "Permissive" excludes weak copyleft -- MPL, LGPL, EPL, CDDL, MS-PL -- so making the verdict
 blocking would simultaneously decide that an MPL-licensed *dependency* blocks a release of an
 MIT-licensed library. Defensible for a package that merely consumes one without modifying it, but
@@ -427,6 +449,16 @@ therefore costs nothing today, which is exactly how it would reach whoever cuts 
 until the first MPL dependency arrives, then decided under time pressure by the owner of a red
 build. **It belongs answered before the flip.** Raised with root; the same mismatch was found
 independently across the fleet, between a policy with three tiers and a tool with two.
+
+**A count where membership was needed, found by accident and worth the entry.** The report
+iterates the *solution* BOM and marks each component shipped or test-only, so a component present
+in the shipped BOM but absent from the solution one is never classified at all -- invisible, in
+exactly the half of the verdict that gates. The guard against that compared **sizes**
+(`len(solution) < len(shipped)`), which passes at 9 shipped against 58 in the solution while one of
+those 9 is missing. A sabotage run produced that state by accident and an injected `GPL-3.0-only`
+in the shipped BOM came back **exit 0**. Now a set difference: any shipped key absent from the
+solution BOM is "not measured", pinned in the self-test in both directions, because the size check
+passed the first of those cases.
 
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a solution BOM smaller than the shipped one, an

@@ -90,6 +90,16 @@ PERMISSIVE_NAME = "permissive"
 # table records that.
 PUBLIC_DOMAIN_MARKER = re.compile(r"^LicenseRef-PublicDomain\b", re.IGNORECASE)
 
+# Free by policy although the family it belongs to is not: MPL-2.0 is in the free tier, MPL
+# generally is in the case-by-case tier. Checked BEFORE the classes, because the narrower rule has
+# to win over the broader one.
+#
+# The trailing guard is not decoration. `MPL-2.0-no-copyleft-exception` is a DIFFERENT SPDX licence
+# and stays case-by-case, and `\b` alone would match it -- the hyphen after "2.0" is a word
+# boundary. Same shape as the missing `\b` that would have read "MITRE" as MIT, one level in:
+# an exception carved out of a broader rule needs anchoring at BOTH ends.
+FREE_BY_POLICY = re.compile(r"\bMPL-2\.0\b(?!-)", re.IGNORECASE)
+
 # Licenses this script cannot read out of the BOM, resolved by hand at the package itself.
 #
 # Keyed by (name, version) EXACTLY, and that is the whole design: a version bump drops out of the
@@ -174,7 +184,25 @@ WHY = {name: why for name, _, why in CLASSES}
 WHY[UNKNOWN] = "expression belongs to no class this script knows -- needs a human"
 WHY[PERMISSIVE_NAME] = ""
 
-BLOCKING = {"PROPRIETARY", "AGPL", "SSPL", "BUSL", "GPL"}
+# The project's licence policy, decided 2026-11-07: three tiers, not two.
+#
+# Two tiers were the structural defect this replaces. With permissive-or-finding, an LGPL
+# dependency that policy wants documented produced the same yellow job as an AGPL one that policy
+# wants stopped -- and people stop reading a signal that cannot tell those apart.
+#
+# STOP is about redistribution being refused or conditional. CASE_BY_CASE is about an obligation
+# someone has to write down. UNKNOWN sits in CASE_BY_CASE deliberately: "nobody has read it" is a
+# thing to resolve, not a thing to block a release on, and the gate names it on every run until
+# somebody does.
+STOP = {"PROPRIETARY", "AGPL", "SSPL", "BUSL", "GPL"}
+CASE_BY_CASE = {"LGPL", "EPL", "CDDL", "MS-PL", "MPL", UNKNOWN}
+
+# Exit codes, and the gap between 2 and 3 is the point: 2 means NOT MEASURED. Reusing it for a
+# policy stop would make "red because the licence is refused" indistinguishable from "red because
+# the gate knows nothing", which are opposite problems with opposite fixes. Case-by-case keeps 1,
+# so a consumer of this script that has not been updated meets an unknown 3 on a stop licence and
+# fails hard, rather than quietly treating it as yellow.
+EXIT_FREE, EXIT_CASE_BY_CASE, EXIT_NOT_MEASURED, EXIT_STOP = 0, 1, 2, 3
 
 
 class NotMeasured(Exception):
@@ -190,6 +218,8 @@ def _classify_atom(expression, resolved=False):
     # Only on the resolved path, and checked before the classes so the PROPRIETARY pattern does not
     # claim it first. See PUBLIC_DOMAIN_MARKER for why a BOM never gets this.
     if resolved and PUBLIC_DOMAIN_MARKER.match(expression.strip()):
+        return PERMISSIVE_NAME
+    if FREE_BY_POLICY.search(expression):
         return PERMISSIVE_NAME
     for name, pattern, _ in CLASSES:
         if re.search(pattern, expression, re.IGNORECASE):
@@ -308,14 +338,26 @@ def _key(component):
 def report(shipped_path, solution_path):
     shipped = load_components(shipped_path, "shipped BOM")
     solution = load_components(solution_path, "solution BOM")
-    if len(solution) < len(shipped):
-        # The solution is a superset of the shipped project by construction. If it is not, the two
-        # BOMs do not describe what their names say and the scope split below is meaningless.
-        raise NotMeasured(
-            "solution BOM has %d components, fewer than the shipped BOM's %d -- the two files do "
-            "not describe what their names claim" % (len(solution), len(shipped)))
-
     shipped_keys = {_key(c) for c in shipped}
+    solution_keys = {_key(c) for c in solution}
+
+    # MEMBERSHIP, NOT COUNTS, and the difference is a hole I shipped and then fell into.
+    #
+    # The loop below iterates the SOLUTION BOM and marks each component shipped or test-only. A
+    # component in the shipped BOM but missing from the solution one is therefore never classified
+    # at all -- invisible, in the half of the verdict that actually gates. The guard here used to
+    # compare sizes (`len(solution) < len(shipped)`), which passes happily at 9 shipped against 58
+    # in the solution while one of those 9 is absent. Found by a sabotage run that produced exactly
+    # that state by accident: an injected STOP licence in the shipped BOM came back exit 0.
+    #
+    # The solution BOM is a superset of the shipped one by construction, so any missing key means
+    # the two files do not describe what their names claim, and nothing can be concluded.
+    missing = sorted(shipped_keys - solution_keys)
+    if missing:
+        raise NotMeasured(
+            "%d shipped component(s) are absent from the solution BOM, so they would never be "
+            "classified: %s. The solution BOM must be a superset of the shipped one"
+            % (len(missing), ", ".join(missing)))
     findings = {"shipped": [], "test-only": []}
 
     print("Third-party licenses, by component (shipped library gates, test-only reports):")
@@ -343,17 +385,17 @@ def report(shipped_path, solution_path):
 
     for scope in ("shipped", "test-only"):
         for name, verdict, expression in findings[scope]:
-            # PROPRIETARY is in BLOCKING but is not copyleft, so the label is chosen before the
-            # set is consulted. A warning that calls a EULA "blocking copyleft" is wrong about the
-            # one thing the reader needs from it.
+            # PROPRIETARY is in STOP but is not copyleft, so the label is chosen before the set is
+            # consulted. A warning that calls a EULA "blocking copyleft" is wrong about the one
+            # thing the reader needs from it.
             if verdict == "PROPRIETARY":
-                severity = "not open source"
-            elif verdict in BLOCKING:
-                severity = "blocking copyleft"
+                severity = "STOP -- not open source"
+            elif verdict in STOP:
+                severity = "STOP -- copyleft that binds a redistributed package"
             elif verdict == UNKNOWN:
-                severity = "cannot be named"
+                severity = "case-by-case -- cannot be named, so nobody has read it yet"
             else:
-                severity = "weak copyleft"
+                severity = "case-by-case -- an obligation to write down, not a stop"
             print("::warning::%s (%s): %s -- %s, %s. %s"
                   % (name, scope, expression, verdict, severity, WHY[verdict]))
 
@@ -364,25 +406,39 @@ def report(shipped_path, solution_path):
     def worst_of(scope):
         return min((verdict for _, verdict, _ in findings[scope]), key=_rank)
 
-    if findings["shipped"]:
-        print("%d shipped component(s) need a look. Worst class present: %s."
-              % (len(findings["shipped"]), worst_of("shipped")))
-        blocking = [name for name, verdict, _ in findings["shipped"] if verdict in BLOCKING]
-        if blocking:
-            print("Start with these -- they are conditions on redistributing this package, not "
-                  "open questions about it: %s" % ", ".join(blocking))
-        return 1
+    def named(scope, tier):
+        return [name for name, verdict, _ in findings[scope] if verdict in tier]
+
+    # Test-only components are reported with their tier but never decide the exit code -- the same
+    # scope property the vulnerability scan uses. A copyleft test framework is not redistributed by
+    # this package, and a gate permanently red for something we do not ship stops meaning anything.
+    for component in named("test-only", STOP):
+        print("::warning::%s is test-only, so it does not decide this verdict -- but it is in the "
+              "STOP tier and would block a release if this package ever shipped it." % component)
+
+    stopped = named("shipped", STOP)
+    if stopped:
+        print("::error::STOP: %d shipped component(s) carry a licence the policy refuses: %s"
+              % (len(stopped), ", ".join(stopped)))
+        print("This fails the build. Redistribution is refused or conditional, which is not "
+              "something a release can carry.")
+        return EXIT_STOP
+
+    cases = named("shipped", CASE_BY_CASE)
+    if cases:
+        print("%d shipped component(s) need a documented decision, worst class %s: %s"
+              % (len(cases), worst_of("shipped"), ", ".join(cases)))
+        print("Reported, not blocking: the policy asks for these to be written down, and the run "
+              "keeps naming them until they are.")
+        return EXIT_CASE_BY_CASE
+
     if findings["test-only"]:
-        print("Shipped components are all permissive. %d test-only component(s) need a look, "
-              "worst class %s; they are not redistributed by this package, so they do not decide "
-              "this verdict." % (len(findings["test-only"]), worst_of("test-only")))
-        blocking = [name for name, verdict, _ in findings["test-only"] if verdict in BLOCKING]
-        if blocking:
-            print("Named rather than cleared, and they would decide the verdict if this package "
-                  "ever shipped them: %s" % ", ".join(blocking))
-        return 0
-    print("All %d components resolve to a permissive license." % len(solution))
-    return 0
+        print("Every shipped component is in the free tier. %d test-only component(s) carry "
+              "something, worst class %s -- not redistributed here, so not this verdict."
+              % (len(findings["test-only"]), worst_of("test-only")))
+        return EXIT_FREE
+    print("All %d components are in the free tier." % len(solution))
+    return EXIT_FREE
 
 
 def self_test():
@@ -406,7 +462,13 @@ def self_test():
     expect("GPL-3.0-only", "GPL")
     expect("AGPL-3.0-or-later", "AGPL")
     expect("LGPL-2.1-only", "LGPL")
-    expect("MPL-2.0", "MPL")
+    # MPL-2.0 is free by policy; the family is not. Both ends of the carve-out are pinned, because
+    # an exception anchored at one end only is how "MITRE" would have read as MIT.
+    expect("MPL-2.0", PERMISSIVE_NAME)
+    expect("MPL-1.1", "MPL")
+    expect("MPL-2.0-no-copyleft-exception", "MPL")   # a DIFFERENT SPDX licence, stays case-by-case
+    expect("MPL-2.0 AND GPL-3.0-only", "GPL")        # free atom does not clear a stop atom
+    expect("MPL-2.0 OR MPL-1.1", PERMISSIVE_NAME)    # a choice, so take the free branch
     expect("SSPL-1.0", "SSPL")
     expect("MS-PL", "MS-PL")
     expect("LicenseRef-Microsoft-SqlClient-SNI", "PROPRIETARY")
@@ -496,6 +558,42 @@ def self_test():
             failures.append("component_verdict(%r) = %r, expected %r"
                             % (component, actual, wanted))
 
+    # The superset guard, both ways. A count comparison passed the first of these.
+    import tempfile as _tempfile
+    def _write(components):
+        handle = _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump({"bomFormat": "CycloneDX", "components": components}, handle)
+        handle.close()
+        return handle.name
+
+    pad = [{"name": "pad%d" % i, "version": "1",
+            "licenses": [{"license": {"id": "MIT"}}]} for i in range(5)]
+    only_in_shipped = {"name": "ghost", "version": "1",
+                       "licenses": [{"license": {"id": "GPL-3.0-only"}}]}
+    for shipped_components, solution_components, should_fail in (
+        # A shipped component missing from the solution BOM: fewer shipped than solution, so a
+        # size check passes, and the component would never be classified.
+        ([pad[0], only_in_shipped], pad, True),
+        # The honest shape: shipped is a subset.
+        ([pad[0]], pad, False),
+    ):
+        shipped_path, solution_path = _write(shipped_components), _write(solution_components)
+        quiet, sys.stdout = sys.stdout, open(os.devnull, "w", encoding="utf-8")
+        try:
+            report(shipped_path, solution_path)
+            failed = False
+        except NotMeasured:
+            failed = True
+        finally:
+            sys.stdout.close()
+            sys.stdout = quiet
+            os.unlink(shipped_path)
+            os.unlink(solution_path)
+        if failed != should_fail:
+            failures.append(
+                "superset guard %s" % ("missed a shipped component absent from the solution BOM"
+                                       if should_fail else "rejected a valid subset"))
+
     # Loader: the measurement guards must fire, and must not fire on a valid BOM.
     valid = {"bomFormat": "CycloneDX", "components": [{"name": "x", "version": "1"}]}
     for document, should_fail in (
@@ -518,6 +616,18 @@ def self_test():
             failures.append("load_components(%r) %s"
                             % (document, "rejected a valid BOM" if should_fail is False
                                else "accepted an unusable BOM"))
+
+    # Every class belongs to exactly one tier. Without this, adding a class and forgetting to tier
+    # it would make it a finding that no branch reports and no exit code reflects -- the quiet
+    # failure this whole file is built against.
+    for name, _, _ in CLASSES:
+        in_tiers = (name in STOP) + (name in CASE_BY_CASE)
+        if in_tiers != 1:
+            failures.append("class %r is in %d tiers, expected exactly 1" % (name, in_tiers))
+    if (UNKNOWN in CASE_BY_CASE) is False:
+        failures.append("UNKNOWN must be in the case-by-case tier")
+    if PERMISSIVE_NAME in STOP or PERMISSIVE_NAME in CASE_BY_CASE:
+        failures.append("permissive must be in no tier but free")
 
     if failures:
         print("::error::License classifier self-test failed -- this gate cannot be trusted:")

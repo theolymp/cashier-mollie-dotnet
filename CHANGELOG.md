@@ -20,6 +20,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   more than four decimal places -- nothing in 0.4.0 could produce one. **A migration is required**;
   see "Upgrading to 0.5.0" in the README for the per-provider effect.
 
+### Changed -- supply chain
+- The licence check now blocks, in three tiers rather than two. The exit code is the tier: `0` free
+  (permissive plus `MPL-2.0`), `1` case-by-case (LGPL, EPL, CDDL, MS-PL, MPL-1.x, unknown) reported
+  without failing the build, `2` not measured, `3` stop (GPL, AGPL, SSPL, BUSL, proprietary). Only
+  `2` and `3` fail. Two tiers was the defect: an LGPL dependency that wants documenting produced
+  the same signal as an AGPL one that wants stopping, and a signal that cannot tell those apart
+  stops being read. `2` and `3` are deliberately distinct, so "the licence is refused" cannot be
+  confused with "the gate knows nothing". Scope is unchanged: only shipped components decide the
+  code, and a test-only stop licence is reported loudly without failing.
+
 ### Changed -- release plumbing
 - Publishing uses NuGet trusted publishing (OIDC) instead of a long-lived API key: the job
   exchanges a short-lived credential through `NuGet/login` and runs in a `release` environment,

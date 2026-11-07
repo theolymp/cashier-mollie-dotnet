@@ -84,61 +84,52 @@ echo "--- License verdict"
 python3 -I .github/license-classify.py "$OUT_DIR/bom-shipped.json" "$OUT_DIR/bom-solution.json"
 verdict=$?
 
-# REPORTING ONLY, and the condition for changing that is a STATE, not a date.
+# THREE TIERS, and the classifier's exit code IS the tier. Project licence policy, 2026-11-07:
 #
-#   exit 2 -> not measured, or the classifier failed its own self-test. HARD failure: a gate that
-#             cannot tell you it knows nothing is worse than no gate.
-#   exit 1 -> measured, and there is a finding. Reported, does not fail the build.
-#   exit 0 -> measured, everything shipped is permissive.
+#   0  free          permissive, plus MPL-2.0        -> green
+#   1  case-by-case  LGPL, EPL, CDDL, MS-PL, MPL-1.x, UNKNOWN
+#                    -> reported, does NOT fail. The policy asks for a written decision, not a
+#                       stop, and the run keeps naming them until there is one.
+#   2  NOT MEASURED  no usable BOM, or a failed self-test -> HARD FAIL
+#   3  STOP          GPL, AGPL, SSPL, BUSL, PROPRIETARY   -> HARD FAIL
 #
-# Flip MODE to gate -- replace the `exit 0` in the `1)` branch with `exit 1` -- once every
-# component in the shipped BOM classifies as PERMISSIVE, which is exactly the `0)` branch below.
+# THE GAP BETWEEN 2 AND 3 IS LOAD-BEARING. Reusing 2 for a policy stop would make "red because the
+# licence is refused" indistinguishable from "red because the gate knows nothing" -- opposite
+# problems with opposite fixes. Case-by-case keeps 1 so that a caller which has not been updated
+# meets an unknown 3 on a stop licence and fails hard, instead of quietly reading it as yellow.
 #
-# That wording is deliberate and it is a correction. This comment used to say "carries a license
-# this classifier can name", which was the same set as permissive when it was written and stopped
-# being so the moment the PROPRIETARY class was added: a vendor EULA IS named, so the old sentence
-# would have read as satisfied with a proprietary dependency sitting in the shipped set -- a
-# condition that announces itself as met while the thing it guards against is present. The
-# mechanism was always right; only the sentence describing it was wrong, which is the worse half
-# to get wrong, because the sentence is what a reader acts on.
+# This replaces an advisory verdict whose flip condition was waiting on a decision. Two tiers were
+# the defect: with permissive-or-finding, an LGPL dependency that policy wants documented produced
+# the same yellow as an AGPL one that policy wants stopped, and a signal that cannot tell those
+# apart stops being read. Nothing here is gated on a date.
 #
-# Today one shipped component is not permissive: Mollie.Api 4.18.0 declares the legacy NuGet
-# licenseUrl instead of an SPDX expression, so it classifies as UNKNOWN (measured 2026-11-07).
-#
-# ⚠️ AND THE FLIP CARRIES AN UNDECIDED POLICY CHOICE, which is not this script's to make.
-# "Permissive" excludes weak copyleft -- MPL, LGPL, EPL, CDDL, MS-PL -- so flipping this would
-# also decide that an MPL-licensed *dependency* blocks a release of an MIT-licensed library. For a
-# library that only consumes such a package without modifying it, that is defensible but it is a
-# decision, and nobody has made it. The classifier has two outcomes, permissive or a finding; a
-# policy would plausibly want three, with weak copyleft as a documented case rather than a stop.
-#
-# Measured 2026-11-07, which is why this is a note and not a bug: 58 components, 8 of them
-# shipped, and ZERO in any weak-copyleft class (known-positive: the classifier does recognise
-# MPL-2.0, LGPL-2.1-only and EPL-2.0 -- the zero is a real negative, not a blind spot). So the
-# choice costs nothing today, and that is exactly how it would reach the person cutting a tag:
-# unnoticed until the first MPL dependency arrives, and then decided under time pressure by
-# whoever the red build belongs to. Answer it before the flip, not at the moment it first bites.
-# Not a date, which would pass unnoticed -- the 90-day retention comment in ci.yml records a break
-# date in this fleet being missed by three weeks -- and not a judgement call, because the run
-# itself checks the condition and says so on the line below.
+# Scope is unchanged and is a property, not an exception list: only SHIPPED components decide the
+# code. A test-only STOP licence is reported loudly and does not fail the build, because this
+# package does not redistribute it.
 case "$verdict" in
     0)
-        echo ">> THE CONDITION FOR BLOCKING IS MET ON THIS RUN: every shipped component is"
-        echo "   permissive, so this run would also have been green with the verdict blocking."
-        echo "   Flipping it is now a POLICY step and not a measurement -- it would also settle"
-        echo "   whether weak copyleft in a shipped dependency stops a release, which nobody has"
-        echo "   decided and which costs nothing today only because there is none. See the"
-        echo "   comment above this case statement before changing the line below it."
+        echo ">> Free tier: every shipped component carries a licence the policy accepts."
         exit 0
         ;;
     1)
-        echo "::warning::License findings above are advisory today and do not fail the build."
-        echo "   They will keep being reported on every run; see the comment in this script for"
-        echo "   the condition under which this becomes blocking."
+        echo "::warning::Case-by-case licences above need a documented decision. Reported, not"
+        echo "   blocking -- the policy asks for them to be written down, and every run names"
+        echo "   them until they are."
         exit 0
         ;;
+    2)
+        echo "::error::NOT MEASURED -- no verdict was formed. This is not a licence finding and"
+        echo "   not an all-clear; see the output above for which guard fired."
+        exit 1
+        ;;
+    3)
+        echo "::error::STOP -- a shipped component carries a licence the policy refuses."
+        echo "   Redistribution is refused or conditional, which a release cannot carry."
+        exit 1
+        ;;
     *)
-        echo "::error::The license check reached no verdict (classifier exit $verdict)."
+        echo "::error::The classifier returned $verdict, which is not a tier this script knows."
+        echo "   Treated as a failure on purpose: an unrecognised verdict is not a pass."
         exit 1
         ;;
 esac
