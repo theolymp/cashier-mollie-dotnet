@@ -1,3 +1,4 @@
+using CashierMollie.Data;
 using CashierMollie.Models;
 using CashierMollie.Tests.TestHelpers;
 using Microsoft.EntityFrameworkCore;
@@ -72,31 +73,27 @@ public class SqlServerTranslationTests
     }
 
     /// <summary>
-    /// Every money column resolves to the provider's default <c>decimal(18,2)</c>, because the
-    /// model sets no explicit precision.
+    /// Every money column carries the precision the model sets, not one the provider chose.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>This test asserts a defect, deliberately, and is expected to change.</b> Thirteen mapped
-    /// <c>decimal</c> properties carry no <c>HasPrecision</c>, so each provider picks: unconstrained
-    /// <c>numeric</c> on PostgreSQL, <c>TEXT</c> on SQLite, <c>decimal(18,2)</c> here. The same code
-    /// therefore stores different amounts depending on where it runs, which is tolerable only
-    /// while the library performs no money arithmetic -- proration throws today.
-    /// </para>
-    /// <para>
-    /// When explicit precision is set, this test goes red and the expected scale is the one line to
-    /// change. That is the point of writing it now: the schema change has to be visible as a
-    /// change, and on the provider that shows it.
+    /// <b>This test asserted the defect until 0.5.0, and flipping it is the record of the fix.</b>
+    /// Before, the thirteen mapped <c>decimal</c> properties had no <c>HasPrecision</c> and each
+    /// provider picked: unconstrained <c>numeric</c> on PostgreSQL, <c>TEXT</c> on SQLite,
+    /// <c>decimal(18,2)</c> here. It asserted <c>(18, 2)</c> and passed. Setting explicit precision
+    /// turned it red on the scale, which is exactly what it was written for -- the schema change
+    /// had to be visible as a change, on the provider that shows it.
     /// </para>
     /// <para>
     /// The columns are read from the catalog rather than listed here. A list of names is an
     /// enumeration of members: it goes stale when someone adds a decimal property, and silently,
     /// because the new column would simply not be checked. The count is therefore part of the
-    /// assertion.
+    /// assertion. <see cref="Architecture.DecimalPrecisionTests"/> makes the same assertion against
+    /// the model, so it also holds where no server is configured.
     /// </para>
     /// </remarks>
     [RequiresSqlServerFact]
-    public async Task DecimalColumns_ResolveToTheProviderDefault_BecauseNoPrecisionIsSet()
+    public async Task DecimalColumns_CarryTheModelsPrecision_NotTheProvidersDefault()
     {
         await using var db = await SqlServerTestServer.CreateAsync<string>();
 
@@ -109,25 +106,26 @@ public class SqlServerTranslationTests
         foreach (var (table, column, dataType, precision, scale) in columns)
         {
             Assert.Equal("decimal", dataType);
-            Assert.Equal(18, precision);
-            Assert.Equal(2, scale);
+            Assert.Equal(CashierModelBuilderExtensions.MoneyPrecision, precision);
+            Assert.Equal(CashierModelBuilderExtensions.MoneyScale, scale);
             Assert.StartsWith("cashier_", table, StringComparison.Ordinal);
             Assert.NotEmpty(column);
         }
     }
 
     /// <summary>
-    /// A <c>decimal</c> with more than two places does not survive a round trip here, where it does
-    /// on PostgreSQL. The same value, the same code, two different amounts.
+    /// A <c>decimal</c> with four places survives a round trip here, and comes back the same value
+    /// PostgreSQL returns. The same code, the same amount, on both.
     /// </summary>
     /// <remarks>
-    /// This is the consequence of the column type above, stated as money rather than as metadata,
-    /// and it is the reason the precision has to be set before any computation lands rather than
-    /// after. The mirror of this test in <see cref="PostgresTranslationTests"/> asserts the value
-    /// comes back whole; the contrast between the two is the finding.
+    /// This is the consequence of the column type above, stated as money rather than as metadata.
+    /// It asserted <c>11.39</c> until 0.5.0 -- the provider's default scale rounded the stored
+    /// value -- and the mirror of it in <see cref="PostgresTranslationTests"/> asserted the same
+    /// input coming back whole. That contrast was the finding; its absence now is the fix, and the
+    /// reason precision had to be set before any computation lands rather than after.
     /// </remarks>
     [RequiresSqlServerFact]
-    public async Task Decimal_IsRoundedToTwoPlaces_WherePostgresKeepsEveryDigit()
+    public async Task Decimal_RoundTripsWithFourPlaces_TheSameValuePostgresReturns()
     {
         await using var db = await SqlServerTestServer.CreateAsync<string>();
 
@@ -146,8 +144,37 @@ public class SqlServerTranslationTests
         await using var read = db.NewContext();
         var stored = await read.Set<Credit<string>>().SingleAsync();
 
-        Assert.Equal(11.39m, stored.Balance);
-        Assert.NotEqual(awkward, stored.Balance);
+        Assert.Equal(awkward, stored.Balance);
+    }
+
+    /// <summary>
+    /// A fifth decimal place is still lost, because four is the declared scale and not an
+    /// accident.
+    /// </summary>
+    /// <remarks>
+    /// The known-negative for the test above: without it, "the value came back" would also be
+    /// satisfied by an unconstrained column, and the assertion would stop being about the
+    /// precision the model sets. Four places is a decision -- two for the amounts Mollie exchanges
+    /// and two beneath them for intermediates -- so the boundary is asserted, not just the inside.
+    /// </remarks>
+    [RequiresSqlServerFact]
+    public async Task AFifthDecimalPlace_IsStillRoundedAway_WhichIsTheDeclaredLimit()
+    {
+        await using var db = await SqlServerTestServer.CreateAsync<string>();
+
+        await using (var write = db.NewContext())
+        {
+            write.Set<Credit<string>>().Add(new Credit<string>
+            {
+                OwnerId = "user-1", Currency = "EUR", Balance = 1.23456m,
+            });
+            await write.SaveChangesAsync();
+        }
+
+        await using var read = db.NewContext();
+        var stored = await read.Set<Credit<string>>().SingleAsync();
+
+        Assert.Equal(1.2346m, stored.Balance);
     }
 
     /// <summary>

@@ -877,6 +877,33 @@ If you don't register a handler, CashierMollie uses a built-in `NullCashierEvent
 
 CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model builder extension:
 
+### Upgrading to 0.5.0: three schema changes, one migration
+
+0.5.0 changes the generated schema, so **a migration is required** -- `dotnet ef migrations add`
+against your own context will pick all three up:
+
+1. **Every `decimal` column now declares `decimal(18,4)`.** Until 0.4.0 none of the 13 money
+   columns set a precision, so the provider chose: unconstrained `numeric` on PostgreSQL, `TEXT`
+   on SQLite, `decimal(18,2)` on SQL Server. Measured on a real SQL Server, `11.3862` came back as
+   `11.39` while PostgreSQL returned it whole -- the same code storing two different amounts
+   depending on where it ran. Four places, not two: Mollie exchanges amounts with two decimal
+   places and a calculation needs room beneath them.
+2. **`cashier_order_items.Discount`** is now written when an item is charged. The column already
+   existed; nothing in the library read or wrote it.
+3. **`cashier_order_items.Metadata`** is new.
+
+**What this does to data you already have**, by provider:
+
+| Provider | Before | After | Effect on stored rows |
+|---|---|---|---|
+| SQL Server | `decimal(18,2)` | `decimal(18,4)` | **Widening.** Nothing is lost. |
+| PostgreSQL | `numeric` (unbounded) | `numeric(18,4)` | **Narrowing**, but only for values with more than four decimal places. Nothing in 0.4.0 could produce one -- amounts come from Mollie with two places and proration throws -- so in practice no row changes. Check first if you write these columns yourself. |
+| SQLite | `TEXT` | `TEXT` | No change; SQLite ignores decimal facets. |
+
+Nothing above alters an amount already charged. If you do hold values with more than four decimal
+places in these columns, migrate them yourself before applying this -- the database will round them
+and will not tell you.
+
 ### `cashier_subscriptions`
 
 | Column | Type | Description |
@@ -905,7 +932,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `MolliePaymentId` | `varchar(255)` UNIQUE | Mollie payment ID |
 | `Status` | `varchar(50)` | Mollie payment status |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
-| `Amount` | `decimal` | Payment amount |
+| `Amount` | `decimal(18,4)` | Payment amount |
 | `MollieMandateId` | `varchar(255)?` | Associated mandate ID |
 | `Method` | `varchar(50)?` | Payment method used |
 | `PaidAt` | `datetimeoffset?` | When payment was confirmed |
@@ -922,11 +949,15 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `Description` | `varchar(255)` | Line item description |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
-| `UnitPrice` | `decimal` | Price per unit |
+| `OrderId` | `bigint?` | FK to the parent order. Null on every item the `Managed` engine schedules -- nothing groups items into an order yet, see [Roadmap](#roadmap). |
+| `UnitPrice` | `decimal(18,4)` | Price per unit |
 | `Quantity` | `int` | Number of units |
-| `TaxPercentage` | `decimal` | Tax rate (e.g. `19.0`) |
+| `TaxPercentage` | `decimal(18,4)` | Tax rate (e.g. `19.0`) |
+| `Discount` | `decimal(18,4)` | What was actually subtracted when the item was charged, so the amount reconciles from the row: `UnitPrice * Quantity - Discount`. Written by the `Managed` engine on charge; **0 on an unprocessed item means "not charged yet", not "no discount"**. Wired in 0.5.0 -- before that the column existed and nothing read or wrote it. |
+| `Metadata` | `text?` | The JSON sent with every charge created from this item. This is what carries a subscription's metadata into its **later** cycles; before 0.5.0 it reached the first payment only. Written from `WithMetadata()`, inherited by the next item each cycle. |
 | `MolliePaymentId` | `varchar(255)?` | Associated Mollie payment |
 | `MolliePaymentStatus` | `varchar(50)?` | Payment status |
+| `ProcessAt` | `datetimeoffset?` | When the item is **due** -- what the `Managed` engine's timer selects on |
 | `ProcessedAt` | `datetimeoffset?` | When item was processed |
 | `CreatedAt` | `datetimeoffset` | Record creation timestamp |
 | `UpdatedAt` | `datetimeoffset` | Last update timestamp |
@@ -941,7 +972,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `MolliePaymentId` | `varchar(255)?` | Mollie payment ID |
 | `MolliePaymentStatus` | `varchar(50)?` | Status of the associated Mollie payment (`paid`, `open`, `failed`) |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
-| `Total` | `decimal` | Order total |
+| `Total` | `decimal(18,4)` | Order total |
 
 ### `cashier_credits`
 
@@ -950,7 +981,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `Id` | `bigint` PK | Auto-increment ID |
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
-| `Balance` | `decimal` | Current credit balance |
+| `Balance` | `decimal(18,4)` | Current credit balance |
 
 ### `cashier_refunds`
 
@@ -960,7 +991,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 | `PaymentId` | `bigint` | FK to payment |
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `MollieRefundId` | `varchar(255)` UNIQUE | Mollie refund ID |
-| `Amount` | `decimal` | Refund amount |
+| `Amount` | `decimal(18,4)` | Refund amount |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
 | `Status` | `varchar(50)` | Refund status |
 
@@ -1065,7 +1096,7 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
 | `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | ⚠️ **Not read by this library.** Nothing builds an order number and `Number` is never populated. Slated for removal in the next major. |
-| `PaymentMethodUpdateAmount` | `decimal` | `0.01` | Amount for payment method update verification |
+| `PaymentMethodUpdateAmount` | `decimal(18,4)` | `0.01` | Amount for payment method update verification |
 | `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 
 ## Roadmap

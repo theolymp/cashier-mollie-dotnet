@@ -114,10 +114,16 @@ recurring charge (top item). It logs a warning naming the code rather than stayi
 
 **Still open, and both are deliberate:**
 
-- **The discount is not persisted.** The charged amount differs from `OrderItem.UnitPrice *
-  Quantity` with no local column recording why — the trace is the Mollie payment and the log line. A
-  `DiscountAmount` column on the order item would fix it and changes the generated schema, so it
-  needs the same migration decision as `HasPrecision` below.
+- ~~**The discount is not persisted.**~~ **Closed 2026-11-07.** `OrderItem.Discount` is written
+  when the item is charged, so the amount reconciles from the row: `UnitPrice * Quantity -
+  Discount`. The next cycle's item deliberately does not inherit it, and zero on an unprocessed
+  item means "not charged yet" rather than "no discount".
+  **Measured correction to this entry, which asked for a new `DiscountAmount` column:** the column
+  already existed as `Discount`, with five mentions in the model and **zero** read or write sites
+  anywhere in the library -- the same shape as the old silent `Prorate`. Adding `DiscountAmount`
+  beside it would have shipped two columns for one concept, so the existing one was wired instead.
+  The maintainer's decision named `DiscountAmount`; what it asked for was that the discount be
+  persisted, and it is.
 - **A redemption whose definition disappeared** (code removed from configuration after it was
   redeemed) charges the full amount and logs a warning. The third state is distinguished from "no
   coupon" in the API (`CouponDiscountStatus.DefinitionMissing`) rather than collapsed into it; what
@@ -129,9 +135,17 @@ Closed the inert part on 2026-10-26: `WithMetadata()` on the subscription builde
 builder now send metadata to Mollie as JSON, asserted on the request object handed to the Mollie
 client. An absent or empty dictionary sends no metadata field rather than `{}`.
 
-Open: **recurring charges carry nothing.** They are created from order items, which have no metadata
-column, so the dictionary does not follow a subscription into later cycles. Same schema decision as
-the discount column above.
+**Closed 2026-11-07.** `OrderItem.Metadata` holds the serialised JSON, each cycle's item inherits
+it from the one it replaces, and the recurring charge sends it. One serialiser, shared with the
+Mollie client, so the stored string is exactly what the payment carries and there is no second
+representation to drift. A value that will not parse is logged with the item id and the charge goes
+ahead without it: only this library writes that column, so an unreadable value means something
+outside it changed the row, and losing the charge over metadata would be the worse failure.
+
+Still open, and it is a different gap: **an item is only scheduled on direct activation.** A
+subscription created through the first-payment checkout flow has no order item yet, so it has
+nothing to hang metadata on and nothing scheduled either. That belongs with the first-payment flow,
+not with metadata.
 
 Not covered: a run against Mollie's test mode. The request object is verified here; that the field
 survives the wire is not, and the credential for that lives in the secret store rather than
@@ -237,15 +251,33 @@ with `UnitPrice = 0m` by design, with a comment saying so. Proration depends on 
 
 ## Schema
 
-### `HasPrecision` is not set on the decimal columns
+### `HasPrecision`: set on all 13 decimal columns (closed 2026-11-07)
 
-13 decimal properties have no explicit precision, so the provider decides. On SQL Server the model
-resolves to `decimal(18,2)`; measured, `numeric(18,2)` rounds `11.3862` to `11.39` while an
-unconstrained `numeric` holds the value. Harmless while no money arithmetic exists in the library —
-proration throws — but the same code would otherwise produce provider-dependent amounts.
+Decided by the maintainer on 2026-11-07 for the next minor, together with the two order-item
+columns above: *"Ja, im naechsten Minor"*. All three landed in the same change, `main` now carries
+version 0.5.0, and **nothing is published** -- the publish job is gated on `refs/tags/v*` and no tag
+is cut, so a release still waits for an explicit go-ahead.
 
-Open: set explicit precision **before** any computation lands. Note this changes the generated
-schema, so consumers would need a migration.
+Every mapped decimal column declares `decimal(18,4)`. Before, the provider chose: unconstrained
+`numeric` on PostgreSQL, `TEXT` on SQLite, `decimal(18,2)` on SQL Server -- measured there,
+`11.3862` came back as `11.39` while PostgreSQL returned it whole.
+
+Four places rather than two, because Mollie exchanges amounts with two and a calculation needs room
+beneath them. Uniform across all 13, including the tax percentage: one rule has no per-column
+judgement to get wrong, and it lets `Architecture/DecimalPrecisionTests` assert *every* mapped
+decimal instead of a list that goes stale. Set per entity rather than by sweeping
+`modelBuilder.Model` -- `ApplyCashierMollie` runs against the **consumer's** model, and a loop over
+every decimal property in it would silently re-type their columns too.
+
+The coverage came first, deliberately, and earned its place: `Integration/SqlServerTranslationTests`
+asserted the *defect* (`(18, 2)`, and `11.39`), and setting the precision turned exactly those two
+red. The flip is in the history. A fifth decimal place is still rounded away, asserted as the
+known-negative, so "the value came back" cannot be satisfied by an unbounded column.
+
+**Consumers need a migration.** The per-provider effect is in the README under "Upgrading to
+0.5.0": widening on SQL Server, narrowing an unbounded column on PostgreSQL that only touches
+values with more than four decimal places -- which nothing in 0.4.0 could produce -- and no change
+on SQLite.
 
 ---
 

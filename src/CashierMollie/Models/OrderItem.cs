@@ -43,8 +43,35 @@ public class OrderItem<TKey> : IHasTimestamps where TKey : IEquatable<TKey>
     /// <summary>Tax rate as a percentage (e.g. 19.0 for 19% VAT).</summary>
     public decimal TaxPercentage { get; set; }
 
-    /// <summary>Discount amount applied to this line item.</summary>
+    /// <summary>
+    /// Discount actually subtracted when this item was charged, in the item's currency.
+    /// </summary>
+    /// <remarks>
+    /// Written by the <c>Managed</c> engine when it charges the item, so the charged amount is
+    /// explainable from the row alone: it is <c>UnitPrice * Quantity</c> minus this. Until 0.5.0
+    /// the column existed and no code in the library read or wrote it, which made a discounted
+    /// charge traceable only through the Mollie payment and a log line. Zero on an unprocessed
+    /// item means "not charged yet", not "no discount".
+    /// </remarks>
     public decimal Discount { get; set; }
+
+    /// <summary>
+    /// Metadata to attach to every charge created from this item, as the JSON Mollie stores.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is what carries a subscription's metadata into its later billing cycles. Recurring
+    /// charges are created from order items, so before 0.5.0 the dictionary reached the first
+    /// payment and nothing after it.
+    /// </para>
+    /// <para>
+    /// It holds the serialised form rather than a dictionary on purpose: the column then contains
+    /// exactly the string the payment carries, and there is no second representation to drift.
+    /// Only this library writes it. Nothing downstream parses it except the charge that sends it,
+    /// and a value that cannot be read back is reported rather than silently dropped.
+    /// </para>
+    /// </remarks>
+    public string? Metadata { get; set; }
 
     /// <summary>Associated Mollie payment ID.</summary>
     [MaxLength(255)]

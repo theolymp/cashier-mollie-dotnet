@@ -145,6 +145,11 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 UnitPrice = 0m,
                 Quantity = options.Quantity > 0 ? options.Quantity : 1,
                 ProcessAt = now.AddDays(DefaultBillingIntervalDays),
+                // Stored here because recurring charges are created from order items: this is the
+                // only thing that carries the dictionary past the first payment. Note the branch
+                // -- an item is scheduled on direct activation, so a subscription that goes
+                // through the checkout flow has none yet and nothing to hang metadata on.
+                Metadata = MetadataJson.Serialise(options.Metadata),
             };
             _db.OrderItems.Add(firstItem);
 
@@ -285,11 +290,20 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
                 decimal net = gross - discount.Amount;
 
+                // Only this library writes the column, so a value that will not parse means
+                // something outside it changed the row. Charging without the metadata is the
+                // lesser harm -- the money is still correct -- but doing it silently is not, so
+                // the item is named and the charge goes ahead.
+                if (!MetadataJson.TryDeserialise(item.Metadata, out var metadata))
+                {
+                    LogMetadataUnreadable(item.Id);
+                }
+
                 // Create a recurring payment via Mollie
                 var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
                     customerId, mandateId, net,
                     item.Currency, item.Description,
-                    _options.EffectiveWebhookUrl, metadata: null, ct);
+                    _options.EffectiveWebhookUrl, metadata, ct);
 
                 if (discount.Status == CouponDiscountStatus.Applied)
                 {
@@ -304,6 +318,12 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 item.MolliePaymentId = molliePayment.Id;
                 item.MolliePaymentStatus = molliePayment.Status;
                 item.ProcessedAt = now;
+
+                // What was actually subtracted, so the charged amount is explainable from the row
+                // rather than only from the Mollie payment and a log line. Set unconditionally:
+                // writing it only when a coupon applied would leave the previous cycle's value
+                // standing on an item that got no discount.
+                item.Discount = discount.Amount;
 
                 // Update the subscription's cycle start
                 subscription.CycleStartedAt = now;
@@ -325,6 +345,10 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                     UnitPrice = item.UnitPrice,
                     Quantity = item.Quantity,
                     ProcessAt = now.AddDays(DefaultBillingIntervalDays),
+                    // Inherited, which is what makes metadata survive every cycle rather than one.
+                    Metadata = item.Metadata,
+                    // Discount is deliberately NOT copied: it records what a past charge
+                    // subtracted, and the next cycle's coupon state is computed when it is charged.
                 };
                 _db.OrderItems.Add(nextItem);
 
@@ -371,6 +395,13 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     private partial void LogCouponApplied(string code, decimal gross, decimal net, long orderItemId);
 
     // A redemption whose definition is gone. Warning rather than information: the customer is
+    // The argument is the id itself, not a formatted string: the generated method checks IsEnabled
+    // only after its arguments have been evaluated (CA1873).
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Order item {OrderItemId} has metadata that could not be read back as JSON; "
+            + "charging without it")]
+    private partial void LogMetadataUnreadable(long orderItemId);
+
     // charged full price while holding a coupon, and nobody finds that by reading a total.
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Coupon {Code} is redeemed for order item {OrderItemId} but its definition is no "

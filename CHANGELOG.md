@@ -6,7 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- schema, migration required
+- **Every `decimal` column now declares `decimal(18,4)`.** Until 0.4.0 none of the 13 money columns
+  set a precision, so each provider chose one: unconstrained `numeric` on PostgreSQL, `TEXT` on
+  SQLite, `decimal(18,2)` on SQL Server. Measured against a real SQL Server, `11.3862` came back as
+  `11.39` while PostgreSQL returned it whole -- the same code storing two different amounts
+  depending on where it ran. Four decimal places rather than two: Mollie exchanges amounts with two
+  and a calculation needs room beneath them, a proration of 29.99 over 11 days being 11.3862 before
+  it is rounded to something chargeable. Set per entity rather than by sweeping the model, because
+  `ApplyCashierMollie` runs against the consumer's `ModelBuilder` and a loop over every decimal
+  property in it would silently re-type their columns too. Widening on SQL Server, so nothing
+  stored there is lost; narrowing an unbounded column on PostgreSQL, which only touches values with
+  more than four decimal places -- nothing in 0.4.0 could produce one. **A migration is required**;
+  see "Upgrading to 0.5.0" in the README for the per-provider effect.
+
 ### Added
+- **`OrderItem.Discount` is now written when an item is charged**, so a discounted amount
+  reconciles from the row (`UnitPrice * Quantity - Discount`) instead of only from the Mollie
+  payment and a log line. The column shipped in earlier versions with **zero** read or write sites
+  in the library. Zero on an unprocessed item means "not charged yet", not "no discount", and the
+  next cycle's item deliberately does not inherit it.
+- **`OrderItem.Metadata` carries a subscription's metadata into every billing cycle.** Recurring
+  charges are built from order items, so until now `WithMetadata()` reached the first payment and
+  nothing after it. The column holds the serialised JSON the payment carries rather than a second
+  representation of it, and the single serialiser is shared with the Mollie client so the two
+  cannot drift. Each cycle's item inherits it from the one it replaces. A value that cannot be read
+  back as JSON is logged with the item id and the charge goes ahead without it -- the money is
+  still owed, and only this library writes that column, so an unreadable value means something
+  outside it changed the row. **Note the limit:** an item is scheduled on direct activation, so a
+  subscription that goes through the first-payment checkout flow has no item yet and nothing to
+  hang metadata on.
 - Tests now run against a real PostgreSQL, the provider both known consumers deploy on. SQLite
   covers relational schema creation and SQL translation, which InMemory does not; it does not cover
   translation against the deployed engine, and the same model resolves `decimal` to `numeric` on

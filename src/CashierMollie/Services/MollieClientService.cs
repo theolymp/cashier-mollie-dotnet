@@ -64,7 +64,7 @@ public class MollieClientService : IMollieClientService
             WebhookUrl = webhookUrl,
             CustomerId = customerId,
             SequenceType = SequenceType.First,
-            Metadata = SerialiseMetadata(metadata),
+            Metadata = MetadataJson.Serialise(metadata),
         };
         return await _paymentClient.CreatePaymentAsync(request, cancellationToken: ct);
     }
@@ -81,20 +81,11 @@ public class MollieClientService : IMollieClientService
             CustomerId = customerId,
             MandateId = mandateId,
             SequenceType = SequenceType.Recurring,
-            Metadata = SerialiseMetadata(metadata),
+            Metadata = MetadataJson.Serialise(metadata),
         };
         return await _paymentClient.CreatePaymentAsync(request, cancellationToken: ct);
     }
 
-    /// <summary>
-    /// Mollie stores metadata as free-form JSON. Null for an absent or empty dictionary, so the
-    /// field is omitted rather than sent as an empty object -- "{}" is a value, and a value that
-    /// means nothing is the kind of thing somebody later reads as intent.
-    /// </summary>
-    private static string? SerialiseMetadata(IReadOnlyDictionary<string, string>? metadata) =>
-        metadata is null || metadata.Count == 0
-            ? null
-            : System.Text.Json.JsonSerializer.Serialize(metadata);
 
     public Task<PaymentResponse> GetPaymentAsync(string paymentId, CancellationToken ct)
         => _paymentClient.GetPaymentAsync(paymentId, cancellationToken: ct);
@@ -110,7 +101,7 @@ public class MollieClientService : IMollieClientService
             Description = description,
             WebhookUrl = webhookUrl,
             MandateId = mandateId,
-            Metadata = SerialiseMetadata(metadata),
+            Metadata = MetadataJson.Serialise(metadata),
         };
         return await _subscriptionClient.CreateSubscriptionAsync(customerId, request, ct);
     }
