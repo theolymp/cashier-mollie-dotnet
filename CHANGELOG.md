@@ -38,6 +38,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   tag is cut**; without one the publish fails loudly, where the API-key path it replaced would have
   produced a green run that published nothing whenever the secret was absent.
 
+### Added
+- **The `Managed` engine now writes an order header when it bills an item.** Until now the only
+  `new Order<TKey>` was in `ChargeBuilder`, so this engine created order *items* and never a
+  header: `Number` never set, `ProcessedAt` never set, `OrderProcessed` never dispatched, and the
+  invoice seam with nothing to receive. Additive -- `Order` already had every column and
+  `OrderItem.OrderId` was already nullable, so there is **no schema change and no migration**; new
+  rows only, nothing rewritten.
+  One order per charge rather than per run, because each item is charged with its own Mollie
+  payment and an order spanning several could not name the payment that settles it. The money
+  columns mirror what was charged: `Subtotal` gross, `Total` net (the amount Mollie was asked
+  for), `TotalDue` the same until a webhook reports it paid, and `Total = Subtotal - Discount`.
+  `Tax` is 0 deliberately -- no billing path here adds tax to a charge -- and so is `CreditUsed`,
+  because credit is a ledger nothing spends yet.
+- **`OrderProcessed` is dispatched** when an order has been billed, carrying the order id. It was
+  previously declared and raised by nothing; a handler registered before 0.5.0 never ran.
+- **`OrderNumberFormat` is read**, filling `Order.Number`, which was previously always null. A
+  value that is not a usable format string, or one longer than the 50-character column, leaves the
+  number null and logs it rather than failing a billing run -- the charge has already happened by
+  then, and an order without a number is the smaller problem. Set it empty to omit numbers.
+
 ### Fixed
 - **A subscription created through the first-payment checkout flow never billed on the `Managed`
   engine.** Order items were created in one place and only on the direct-activation branch, so a

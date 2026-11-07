@@ -275,7 +275,7 @@ Marked as such on both the interface and the null implementation.
 
 This is downstream of the order-header gap below: there is nothing to hand over.
 
-### The order header is only created by one-off charges
+### The order header: written by the Managed engine since 2026-11-07 (invoice hook open)
 
 The library's only `new Order<TKey>` is in `ChargeBuilder`. `ManagedBillingEngine` creates the only
 order **items** and never sets `OrderId` nor creates a header, which the nullable `long? OrderId`
@@ -283,8 +283,37 @@ permits by design — items are scheduled, then grouped into an order when bille
 the grouping. Consequences: `Number` never set, `ProcessedAt` never set, the order-processed event
 never dispatched, and the invoice hook with nothing to receive.
 
-Open: build the grouping. That is a feature, not a repair. Managed engine only — the default engine
-creates no order items at all.
+**Built 2026-11-07, after the maintainer approved it on the condition that it be additive.** That
+condition was measured before any code was written, not assumed: `Order` already carries every
+column needed, `OrderItem.OrderId` was already nullable, and `OrderProcessed` and
+`IInvoiceGenerator` were already declared. So **no schema change, no migration, no new public
+member** -- new rows in `cashier_orders` and `OrderId` set on newly billed items only. Nothing
+rewrites an existing row.
+
+**One order per charge, not per run.** Each item is charged with its own Mollie payment, so an
+order spanning several items could not name the payment that settles it. "Grouping" was the
+aspirational word for what this engine does.
+
+The money columns mirror what was **charged**, which is the only way an order and its payment
+reconcile: `Subtotal` = gross, `Total` = net = the amount Mollie was asked for, `TotalDue` = the
+same until a webhook reports it paid, and `Total` = `Subtotal - OrderItem.Discount`, asserted.
+`Tax` is **0 deliberately** -- no billing path in this library adds tax to a charge, so a non-zero
+value would describe money that was never collected. `CreditUsed` is 0 for a related reason: credit
+is a ledger nothing spends yet, which is its own entry above.
+
+`OrderNumberFormat` is **read now**, which took it out of the unread-options set, and
+`OrderProcessed` is **dispatched**, which took it out of the reserved-events set. Both directions
+were pinned, so wiring each one had to turn its architecture test red first -- and both did, along
+with two further tests asserting the README carries exactly one row per option and per event,
+marked *iff* unread or reserved. Four tests, three of which I had not remembered writing.
+
+A configured format that is unusable (`{1}`, an unbalanced brace) or longer than the 50-character
+column leaves `Number` null and logs it. The charge has already happened by then: throwing would be
+caught by the loop's handler and reported as a **failed payment for a successful charge**.
+
+**Still open: the invoice hook.** `IInvoiceGenerator<TKey>.GenerateAsync` now has something to
+receive, but calling it needs the generator injected into the engine -- a parameter on a **public
+constructor**, which is not additive. Asked rather than assumed; it is the maintainer's call.
 
 ### Plan price resolution
 
