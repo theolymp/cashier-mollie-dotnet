@@ -344,10 +344,20 @@ in use -- `xunit.abstractions` becomes permissive, SqlClient.SNI becomes a block
 to whichever side happened to be written first.
 
 **The license verdict is advisory, and the condition for making it blocking is a state, not a
-date:** it flips when every component in the shipped BOM carries a license the classifier can
-name, which today is one package short. The script announces that condition on every green run
-instead of leaving it in a comment nobody reads on the day it comes true -- a date in exactly this
-area has already been missed by three weeks once in this fleet.
+date:** it flips when every component in the shipped BOM classifies as **permissive**, which today
+is one package short. The script announces that condition on every green run instead of leaving it
+in a comment nobody reads on the day it comes true -- a date in exactly this area has already been
+missed by three weeks once in this fleet.
+
+**That wording is a correction, and the reason is worth keeping.** Until 2026-11-07 this said "every
+component carries a license the classifier can name", which was the same set as permissive when it
+was written and stopped being so the moment the `PROPRIETARY` class existed: a vendor EULA *is*
+named. The sentence would then have read as satisfied with a proprietary dependency in the shipped
+set -- a condition announcing itself as met while the thing it guards against is present. The
+mechanism was never wrong; it keys off the exit code, which only reaches 0 when everything shipped
+is permissive. Only the sentence was wrong, and that is the worse half, because the sentence is
+what a reader acts on. Found by a peer describing a different gap in their own version of this
+check, which is the argument for saying out loud what your gate's condition is.
 
 What is **hard red** is anything that produces no verdict at all: a missing, empty, unparseable or
 zero-component BOM, a BOM that is not CycloneDX, a solution BOM smaller than the shipped one, an
@@ -358,8 +368,15 @@ and a missing file each exit 2; and breaking the classifier's unknown branch so 
 reads as permissive is caught by its own self-test, which then fails the step rather than the
 step passing with a useless verdict.
 
-Open, and not a tooling job: the three unnameable licenses have to be read off the packages
-themselves. Nothing above replaces that, and the gate will keep naming them until someone does.
+The closing line leads with the **worst class present** rather than with a count, because a count
+puts a vendor EULA and an unreadable placeholder at the same priority and they are not the same
+kind of problem. Measured with four injected findings at once: it reports `PROPRIETARY` as the
+worst and lists only the two blocking ones, leaving the weak-copyleft and unnameable ones out of
+that list.
+
+Open, and not a tooling job: the remaining unnameable licenses have to be read off the packages
+themselves. `Mollie.Api` 4.18.0 is the one that matters, because it ships. Nothing above replaces
+that, and the gate will keep naming them until someone does.
 
 ### Trusted publishing: workflow switched, policy not yet created (blocks the next release)
 

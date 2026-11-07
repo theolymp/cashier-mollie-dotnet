@@ -281,14 +281,29 @@ def report(shipped_path, solution_path):
             print("::warning::%s (%s): %s -- %s, %s. %s"
                   % (name, scope, expression, verdict, severity, WHY[verdict]))
 
+    # The closing line is the one somebody reads when deciding what to do first, so it leads with
+    # the worst class present rather than with a count. A count puts a vendor EULA and an
+    # unreadable placeholder at the same priority, and they are not the same kind of problem: one
+    # is a condition on redistributing the package, the other is an open question about it.
+    def worst_of(scope):
+        return min((verdict for _, verdict, _ in findings[scope]), key=_rank)
+
     if findings["shipped"]:
-        print("%d of the shipped components need a look (see the warnings above)."
-              % len(findings["shipped"]))
+        print("%d shipped component(s) need a look. Worst class present: %s."
+              % (len(findings["shipped"]), worst_of("shipped")))
+        blocking = [name for name, verdict, _ in findings["shipped"] if verdict in BLOCKING]
+        if blocking:
+            print("Start with these -- they are conditions on redistributing this package, not "
+                  "open questions about it: %s" % ", ".join(blocking))
         return 1
     if findings["test-only"]:
-        print("Shipped components are all permissive. %d test-only components need a look; they "
-              "are not redistributed by this package, so they do not decide this verdict."
-              % len(findings["test-only"]))
+        print("Shipped components are all permissive. %d test-only component(s) need a look, "
+              "worst class %s; they are not redistributed by this package, so they do not decide "
+              "this verdict." % (len(findings["test-only"]), worst_of("test-only")))
+        blocking = [name for name, verdict, _ in findings["test-only"] if verdict in BLOCKING]
+        if blocking:
+            print("Named rather than cleared, and they would decide the verdict if this package "
+                  "ever shipped them: %s" % ", ".join(blocking))
         return 0
     print("All %d components resolve to a permissive license." % len(solution))
     return 0

@@ -92,12 +92,21 @@ verdict=$?
 #   exit 0 -> measured, everything shipped is permissive.
 #
 # Flip MODE to gate -- replace the `exit 0` in the `1)` branch with `exit 1` -- once every
-# component in the shipped BOM carries a license this classifier can name. Today exactly one does
-# not: Mollie.Api 4.18.0 declares the legacy NuGet licenseUrl instead of an SPDX expression, so it
-# classifies as UNKNOWN (measured 2026-11-07). That is the whole gate: not a date, which would
-# pass unnoticed -- the 90-day retention comment in ci.yml records a break date in this fleet being
-# missed by three weeks -- and not a judgement call, because the run itself checks the condition
-# and says so on the line below.
+# component in the shipped BOM classifies as PERMISSIVE, which is exactly the `0)` branch below.
+#
+# That wording is deliberate and it is a correction. This comment used to say "carries a license
+# this classifier can name", which was the same set as permissive when it was written and stopped
+# being so the moment the PROPRIETARY class was added: a vendor EULA IS named, so the old sentence
+# would have read as satisfied with a proprietary dependency sitting in the shipped set -- a
+# condition that announces itself as met while the thing it guards against is present. The
+# mechanism was always right; only the sentence describing it was wrong, which is the worse half
+# to get wrong, because the sentence is what a reader acts on.
+#
+# Today one shipped component is not permissive: Mollie.Api 4.18.0 declares the legacy NuGet
+# licenseUrl instead of an SPDX expression, so it classifies as UNKNOWN (measured 2026-11-07).
+# Not a date, which would pass unnoticed -- the 90-day retention comment in ci.yml records a break
+# date in this fleet being missed by three weeks -- and not a judgement call, because the run
+# itself checks the condition and says so on the line below.
 case "$verdict" in
     0)
         echo ">> This run would also have been green with the license verdict blocking."
