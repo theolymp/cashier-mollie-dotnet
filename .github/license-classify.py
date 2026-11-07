@@ -104,6 +104,27 @@ RESOLVED_BY_HAND = {
         "(section 3a: inside an application only, and downstream must be bound to equally "
         "protective terms). NAMED, NOT APPROVED",
     ),
+    # The one SHIPPED component that was unnameable, and the first entry here that clears rather
+    # than condemns. `<license type="file">LICENSE</license>` again -- the same second case as
+    # SqlClient.SNI, which is why the placeholder was never evidence either way.
+    #
+    # Read from the file in the nupkg (1089 chars, sha256 13e3f30c8400e4f3, "Copyright (c) 2023
+    # Vincent Kok"), and checked past recognising the text: all five MIT clauses are present
+    # (permission grant, "without restriction", the copyright-notice requirement, AS IS,
+    # NONINFRINGEMENT) so it is not a fragment, and there is NOTHING after the closing clause, so
+    # it is plain MIT rather than MIT-plus-a-condition. That last check is the one that would have
+    # caught SqlClient.SNI, where the comfortable guess was wrong.
+    #
+    # Measured twice, independently: once elsewhere in the fleet from the network copy and once
+    # here from the local package cache, same bytes. The nuspec also pins repository commit
+    # 9c6f40725eee9f687e7d369a0bded64664ad38d2 -- an immovable ref, unlike xunit.abstractions,
+    # whose declared licence URL points at a moving branch.
+    ("Mollie.Api", "4.18.0"): (
+        "MIT",
+        "read from LICENSE inside the nupkg (1089 chars, sha256 13e3f30c8400e4f3). Complete MIT "
+        "text, no additional conditions after the closing clause. nuspec pins repository commit "
+        "9c6f40725eee9f687e7d369a0bded64664ad38d2 for re-checking",
+    ),
     ("xunit.abstractions", "2.0.3"): (
         "Apache-2.0",
         "read at the package itself: its nuspec and the license text it ships. Caveat worth "

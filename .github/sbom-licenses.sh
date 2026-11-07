@@ -123,8 +123,12 @@ verdict=$?
 # itself checks the condition and says so on the line below.
 case "$verdict" in
     0)
-        echo ">> This run would also have been green with the license verdict blocking."
-        echo "   When that holds for every shipped component, this check can stop being advisory."
+        echo ">> THE CONDITION FOR BLOCKING IS MET ON THIS RUN: every shipped component is"
+        echo "   permissive, so this run would also have been green with the verdict blocking."
+        echo "   Flipping it is now a POLICY step and not a measurement -- it would also settle"
+        echo "   whether weak copyleft in a shipped dependency stops a release, which nobody has"
+        echo "   decided and which costs nothing today only because there is none. See the"
+        echo "   comment above this case statement before changing the line below it."
         exit 0
         ;;
     1)

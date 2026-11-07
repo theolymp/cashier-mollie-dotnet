@@ -317,8 +317,16 @@ a fourth. Do not read a number off this page; the run prints the current set. Wh
   judgement nobody made about the new version. Every applied resolution is printed on every run,
   green or not. The caveat travels with it: the license URL the package declares points at a branch
   rather than a tag for 2.0.3, so the link does not establish it and the text does.
-- `Mollie.Api` 4.18.0 is **still open and is the one that matters**, because it ships. It is also
-  the only thing standing between the license verdict and being able to block.
+- `Mollie.Api` 4.18.0 is **MIT, measured 2026-11-07** -- the last shipped unknown, now closed.
+  `<license type="file">LICENSE</license>`, the same second case as SqlClient.SNI, so the
+  placeholder was never evidence either way. Read from the file in the nupkg (1089 chars, sha256
+  `13e3f30c8400e4f3`, "Copyright (c) 2023 Vincent Kok") and checked past recognising the text: all
+  five MIT clauses present, so not a fragment, and **nothing after the closing clause**, so plain
+  MIT rather than MIT-plus-a-condition. That last check is the one that would have caught
+  SqlClient.SNI, where the comfortable guess was wrong. Measured twice independently -- elsewhere
+  in the fleet from the network copy, here from the local package cache, same bytes. The nuspec
+  pins repository commit `9c6f40725eee9f687e7d369a0bded64664ad38d2`, an immovable ref for
+  re-checking, unlike `xunit.abstractions` whose declared URL points at a moving branch.
 - `Microsoft.Data.SqlClient.SNI.runtime` 6.0.2 is **not open source**, which is worse than
   unnameable and was nearly recorded as the same thing. Its nuspec declares
   `<license type="file">LICENSE.txt</license>` -- a file reference, which is the whole reason the
@@ -344,8 +352,10 @@ in use -- `xunit.abstractions` becomes permissive, SqlClient.SNI becomes a block
 to whichever side happened to be written first.
 
 **The license verdict is advisory, and the condition for making it blocking is a state, not a
-date:** it flips when every component in the shipped BOM classifies as **permissive**, which today
-is one package short. The script announces that condition on every green run instead of leaving it
+date:** it flips when every component in the shipped BOM classifies as **permissive** -- and
+**since 2026-11-07 that condition is MET.** All 8 shipped components are permissive; the run says
+so on every pass. What remains is not a measurement but the policy question below, so the flip is
+deliberately left to whoever answers that. The script announces that condition on every green run instead of leaving it
 in a comment nobody reads on the day it comes true -- a date in exactly this area has already been
 missed by three weeks once in this fleet.
 
@@ -389,9 +399,9 @@ kind of problem. Measured with four injected findings at once: it reports `PROPR
 worst and lists only the two blocking ones, leaving the weak-copyleft and unnameable ones out of
 that list.
 
-Open, and not a tooling job: the remaining unnameable licenses have to be read off the packages
-themselves. `Mollie.Api` 4.18.0 is the one that matters, because it ships. Nothing above replaces
-that, and the gate will keep naming them until someone does.
+Open, and not a tooling job: `SourceGear.sqlite3` 3.50.4.5 is still unnameable. It is **test-only**
+and arrives with the SQLite harness, so it does not decide the verdict -- but it is the one package
+here nobody has read, and the gate will keep naming it until someone does.
 
 ### Trusted publishing: workflow switched, policy not yet created (blocks the next release)
 
