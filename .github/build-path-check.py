@@ -130,6 +130,12 @@ def verdict(reference, mapped, build_root):
     lines.append("   %s" % base)
     lines.append("   Two numbers on purpose: the zero says the absolute path is gone, the "
                  "rewrite says it is gone because it was mapped.")
+    # The same numbers again as a ::notice::, which is not decoration. Job logs need a token;
+    # annotations do not, and `::notice::` becomes one. Without this line the evidence for a
+    # successful run exists only inside a log nobody outside the repository can open, and from
+    # outside "proven" and "not measured" both look like a green step. Measured on run
+    # 42436261193: the step passed and left no annotation, so the numbers were unreadable.
+    lines.append("::notice::Build path evidence -- %s" % base)
     return EXIT_PROVEN, lines
 
 
@@ -152,7 +158,9 @@ def self_test():
     for reference, mapped, wanted, says, case in (
         (carrier, rewritten, EXIT_PROVEN,
          ("Build path rewritten, not merely absent", "reference run: 1 UTF-8 + 0 UTF-16LE",
-          "mapped run: 0 + 0", "rewritten relative paths in the mapped run: 1"),
+          "mapped run: 0 + 0", "rewritten relative paths in the mapped run: 1",
+          # Pinned, because the readable-from-outside half is the half that is easy to drop.
+          "::notice::Build path evidence"),
          "the path rewritten, which is the whole point"),
         (carrier, carrier, EXIT_FOUND,
          ("::error::An absolute build path survived", "mapped run: 1 + 0", "PathMap"),
