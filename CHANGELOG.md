@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- supply chain
+- **The published assembly no longer carries this repository's absolute build path.** `Pack` now
+  passes `-p:PathMap=$GITHUB_WORKSPACE=.`, with the root read from the environment rather than
+  typed. Measured: the carrier was exactly one string, the PDB path in the PE debug directory, and
+  it travelled into a consumer's release image as `/home/runner/work/cashier-mollie-dotnet/...`.
+  CI proves the rewrite on every push with two numbers from one pair of packs -- no absolute path
+  *and* a rewritten relative one, because a zero alone cannot tell a mapped path from a debug
+  directory that stopped being emitted -- and blocks the release if the package about to be pushed
+  still carries one. 0.3.0 and 0.4.0 are published and immutable, so this takes effect from the
+  next release.
+
 ### Changed -- documentation
 - **The README's two set counts are pinned to the code.** It ships inside the package and states
   "23 domain events" and "7 entities across 7 tables", the second also spelled out as "seven

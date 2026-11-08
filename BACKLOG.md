@@ -695,6 +695,42 @@ run goes red, which is correct. The path this replaced failed the other way -- i
 `if: env.NUGET_API_KEY != ''`, so a tag with no secret configured produced a **green run that
 published nothing**.
 
+### Absolute build paths: removed from the artifact, still live in published images (2026-11-08)
+
+Pantheon found absolute build paths inside release images; the CRA evidence rests on image digest
+plus release SBOM, so deterministic paths are what make two builds of one source comparable. This
+repository is unusual in the rollout: **our** path showed up in **another** repository's image,
+because `CashierMollie.dll` is published to nuget.org and consumed from there.
+
+Measured, not assumed: the carrier is **one** string, the PDB path in the PE debug directory
+(`<root>/src/CashierMollie/obj/Release/net10.0/CashierMollie.pdb`). No SourceLink entry, no
+`AssemblyMetadata`, no UTF-16 copy -- ascii 1, utf16 0, which is this repository's base set and
+not a constant: a sibling measured two UTF-16 copies that must stay two.
+
+`-p:PathMap=$GITHUB_WORKSPACE=.` on the `Pack` step rewrites it. Evidence is two numbers from one
+pair of packs: zero absolute paths **and** at least one rewritten relative path, because a zero
+alone cannot distinguish a mapped path from a debug directory that stopped being emitted. Both
+abort conditions are refusals rather than passes: a reference pack carrying no path proves
+nothing, and an empty search set satisfies any expectation.
+
+**What does NOT transfer from the rollout, measured here:**
+- **Byte comparison against a reference build.** Two clean packs, same root, same flag, differ in
+  72 of 199,168 bytes -- PE stamp, MVID, PDB signature in the debug directory. IL and metadata are
+  identical, only identity GUIDs move. Byte equality would be a permanent false alarm here.
+- **"One known case per side" for own-versus-foreign classification.** The package ships exactly
+  one assembly, our own; dependencies are package references and are not redistributed. There is
+  no foreign side to name, so `foreign == 0` is the shape of the artifact. What is bolted instead
+  is the search set itself: exactly `lib/net10.0/CashierMollie.dll`, count one, or no verdict.
+- A retracted measurement of mine, kept because it cost an hour: "same source, two different
+  roots, byte-identical?" answered no, and that proved nothing -- the second root came from
+  `git archive`, so it had no `.git`, hence no SourceLink data and no commit suffix. The
+  comparison was contaminated. A peer hit the mirror image: there `.git` was missing and the flag
+  did nothing, here it was missing and the comparison did too much.
+
+**Open, and not ours to close:** published packages are immutable. 0.3.0 and 0.4.0 keep their
+paths, and a consumer's image changes only when a new version is published **and** that consumer
+upgrades. The state to report is "mechanism proven, image open".
+
 ### Scheduled scanning was added, and the timer is now checked (2026-11-07)
 
 A weekly `schedule:` trigger runs build, test and scan without a push, because the advisory

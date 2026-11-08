@@ -165,6 +165,19 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: .github/schedule-liveness.sh
 
+      # Evidence that the PathMap on the publish job's Pack step actually removes the build path
+      # -- run here, on every push, because the publish job only fires on a tag and evidence that
+      # first appears during a release is evidence nobody can act on.
+      #
+      # continue-on-error, deliberately: build-and-test is a `needs` of publish, so a failure in
+      # the MEASUREMENT would tear down the release path. A peer session lost nine build jobs to
+      # exactly that. The finding still surfaces -- `::error::` and `::warning::` become
+      # annotations, which the API serves without a token, so a green step with no annotation
+      # from this check is the "proven" tier and nothing else.
+      - name: Check the shipped assembly carries no absolute build path
+        continue-on-error: true
+        run: .github/build-path-check.sh
+
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
@@ -222,8 +235,27 @@ jobs:
         with:
           global-json-file: global.json
 
+      # PathMap at the step that creates the SHIPPED artifact, with the root taken from the
+      # environment rather than typed: a hardcoded path would map a directory the compiler never
+      # saw, and the flag would then be set, succeed, and change nothing.
+      #
+      # What it fixes: this assembly is published to nuget.org and ends up inside a consumer's
+      # release image, carrying `/home/runner/work/cashier-mollie-dotnet/...` with it -- measured
+      # as exactly one string, the PDB path in the PE debug directory. Already-published versions
+      # are immutable, so 0.3.0 and 0.4.0 keep theirs; this takes effect from the next tag.
       - name: Pack
-        run: dotnet pack src/CashierMollie/CashierMollie.csproj --configuration Release --output ./nupkg
+        run: dotnet pack src/CashierMollie/CashierMollie.csproj --configuration Release --output ./nupkg -p:PathMap=$GITHUB_WORKSPACE=.
+
+      # The blocking half of the build-path check, and the only place it belongs: it measures the
+      # .nupkg that is about to be pushed, not one it packed itself, and a push is irreversible --
+      # a version number cannot be reused. No continue-on-error here, and STRICT=1, so a surviving
+      # build path or a verdict that could not be formed stops the release instead of shipping a
+      # package that carries this runner's directory layout into every consumer's image.
+      - name: Verify the package about to be published carries no build path
+        env:
+          STRICT: "1"
+        run: |
+          MAPPED_PACKAGE="$(ls ./nupkg/*.nupkg | head -1)" .github/build-path-check.sh
 
       # Deliberately after Pack and immediately before the push: the exchanged key is short-lived,
       # and a login that sits an hour ahead of the thing it authorises is a failure waiting for a
