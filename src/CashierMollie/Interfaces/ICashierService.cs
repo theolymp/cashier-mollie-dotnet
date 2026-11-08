@@ -92,11 +92,19 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     Task UpdateMollieCustomerAsync(IBillable<TKey> owner, CancellationToken ct = default);
 
     /// <summary>
-    /// Updates <c>Subscription.Quantity</c>. NOTE: this is NOT seat-based billing — no billing path
-    /// reads that field. MollieNative sends nothing to Mollie, which keeps charging its constant
-    /// amount; Managed charges UnitPrice * Quantity of the ORDER ITEM, and the next item copies the
-    /// previous item's quantity. Set the quantity on the pending OrderItem to bill a new seat count.
+    /// Updates <c>Subscription.Quantity</c>. NOTE: this is NOT seat-based billing. MollieNative
+    /// sends nothing to Mollie, which keeps charging its constant amount; Managed charges
+    /// UnitPrice * Quantity of the ORDER ITEM, and in the ordinary cycle the next item copies the
+    /// previous item's quantity. Set the quantity on the pending OrderItem to bill a new seat
+    /// count.
     /// </summary>
+    /// <remarks>
+    /// ONE EXCEPTION, and it is not theoretical: when a Managed subscription has no order item at
+    /// all, the engine repairs that by building one from the SUBSCRIPTION — seat count included.
+    /// Price that item, which is exactly what this summary tells you to do, and the charge is
+    /// UnitPrice * the quantity set here. Until 0.5.0 this summary said "no billing path reads
+    /// that field", which was true of the ordinary cycle and false of the repair.
+    /// </remarks>
     Task<Subscription<TKey>> UpdateQuantityAsync(IBillable<TKey> owner, string name, int quantity, CancellationToken ct = default);
 
     /// <summary>Increments <c>Subscription.Quantity</c> by count. Does not change what is charged —

@@ -231,6 +231,51 @@ public class StrandedSubscriptionTests : IDisposable
         Assert.Null(item.ProcessedAt);
     }
 
+    // --- the one path where Subscription.Quantity reaches a charge ----------
+
+    [Fact]
+    public async Task TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge()
+    {
+        // Until 2026-11-08 three shipped XML summaries said flatly that "no billing path reads
+        // that field", and the comment on the very line that reads it said the same. Both were
+        // true of the ordinary cycle -- the next item copies the PREVIOUS item's quantity -- and
+        // false here: the repair above builds an item from the SUBSCRIPTION, seat count included,
+        // and that item is charged UnitPrice * Quantity.
+        //
+        // The gap matters because of the documented workflow for seats: "set the quantity on the
+        // pending OrderItem". A consumer who read "nothing reads this field" and set it anyway,
+        // believing it inert, gets a repaired item carrying it -- and bills it the moment they
+        // price that item, which is the step the documentation tells them to take.
+        var sub = await SeedAsync(quantity: 7);
+
+        // The repair runs at the top of ProcessDueItemsAsync, and it schedules the item 30 days
+        // out, so this first call creates it and charges nothing.
+        await _managed.ProcessDueItemsAsync();
+
+        var repaired = await _db.OrderItems.SingleAsync();
+        Assert.Equal(7, repaired.Quantity);          // from the subscription, not from a prior item
+        Assert.Equal(0m, repaired.UnitPrice);        // inert until priced, which is why it looked inert
+
+        _db.Payments.Add(new Payment<string>
+        {
+            OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "tr_first",
+            MollieMandateId = "mdt_test", Status = "paid", Amount = 0.01m, Currency = "EUR",
+        });
+        repaired.UnitPrice = 9.99m;                  // the documented step
+        repaired.ProcessAt = DateTimeOffset.UtcNow.AddHours(-1);
+        await _db.SaveChangesAsync();
+
+        await _managed.ProcessDueItemsAsync();
+
+        // 9.99 * 7, and the 7 came from Subscription.Quantity. Asserted as the exact amount
+        // rather than "not 9.99": a charge of 9.99 would mean the seat count was dropped, and a
+        // charge of anything else would mean neither story is right.
+        await _mollie.Received(1).CreateRecurringPaymentAsync(
+            Arg.Any<string>(), Arg.Any<string>(), 69.93m, "EUR",
+            Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
+    }
+
     public void Dispose()
     {
         _db.Dispose();

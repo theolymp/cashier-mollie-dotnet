@@ -338,8 +338,15 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 Description = $"{subscription.Plan} subscription",
                 Currency = _options.Currency,
                 UnitPrice = 0m,
-                // Subscription.Quantity is nullable and nothing in the library reads it for
-                // billing, so an absent value means "one" rather than "zero".
+                // Subscription.Quantity is nullable, so an absent value means "one" rather
+                // than "zero".
+                //
+                // And this is the one place the field reaches a charge: everywhere else the next
+                // item copies the PREVIOUS item's quantity, which is why three XML summaries said
+                // nothing read it for billing until 2026-11-08. They were describing the ordinary
+                // cycle; this line is the repair, and the item it builds is charged
+                // UnitPrice * Quantity as soon as the consumer prices it. Pinned by
+                // StrandedSubscriptionTests.TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge.
                 Quantity = subscription.Quantity is > 0 ? subscription.Quantity.Value : 1,
                 ProcessAt = start.AddDays(DefaultBillingIntervalDays),
             });

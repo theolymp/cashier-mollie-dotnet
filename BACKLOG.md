@@ -93,14 +93,29 @@ unit price.
 Open: whether these methods should throw like `WithProration()` does. That is a breaking change on
 a published API, so it is a decision rather than a fix.
 
-### Quantity management is not seat-based billing
+### Quantity management is not seat-based billing (one exception, found 2026-11-08)
 
-`UpdateQuantityAsync` / increment / decrement update `Subscription.Quantity`. No billing path reads
-that field. MollieNative sends nothing, so the charge is unchanged; Managed charges
-`UnitPrice * Quantity` **of the order item**, and the next item copies the previous item's quantity.
-To bill a new seat count, set the quantity on the pending order item.
+`UpdateQuantityAsync` / increment / decrement update `Subscription.Quantity`. MollieNative sends
+nothing, so the charge is unchanged; Managed charges `UnitPrice * Quantity` **of the order item**,
+and in the ordinary cycle the next item copies the previous item's quantity. To bill a new seat
+count, set the quantity on the pending order item.
 
-Open: same decision as the swap above.
+**"No billing path reads that field" was wrong, and it shipped.** It stood in three XML summaries
+on `ICashierService` -- so a consumer read it in IntelliSense -- and in a comment sitting on the
+line that reads it. The exception is the repair path: a Managed subscription with no order item at
+all gets one built from the **subscription**, seat count included, and that item is charged
+`UnitPrice * Quantity` the moment the consumer prices it, which is the step the same summary tells
+them to take. A test had asserted the transfer (`Assert.Equal(4, item.Quantity)`) since the repair
+was built; nothing compared it with the sentence.
+
+Now measured end to end rather than inferred from the read site: seat count 7, consumer prices the
+repaired item at 9.99, Mollie is asked for **69.93**. Pinned by
+`StrandedSubscriptionTests.TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge`, with the
+amount asserted exactly -- 9.99 would mean the seat count was dropped. Two sabotages of the read
+site (drop to 1, double it) each turn it red.
+
+Open: same decision as the swap above. Unchanged by this -- the correction is to the claim, not to
+the behaviour.
 
 ### Coupons: wired, and only the Managed engine can act on them
 
