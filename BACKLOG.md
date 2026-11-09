@@ -82,6 +82,30 @@ there is no path through the library that accepts the flag and ignores it. One c
 message, called from five sites. Measured first: neither known consumer calls an engine directly,
 so the new throw is inert for the fleet today.
 
+### Shipped summaries are pinned against the capabilities we refuse (2026-11-09)
+
+Found by downloading 0.5.0 back from nuget.org and reading its XML documentation, minutes after
+publishing: four summaries promised what the library refuses.
+`IBillingEngine.UpdateQuantityAsync` said "seat-based billing" and `SwapPlanAsync` described a plan
+swap without the amount caveat -- and that interface is **public and DI-registered**, so it is a
+reachable entrance carrying the opposite sign to `ICashierService`, whose summary beside it was
+correct. `ISubscriptionBuilder.WithProration` and `SubscriptionOptions.Prorate` still promised
+proration, though `WithProration()` is `=> throw new NotSupportedException(...)` -- the defect
+`eb8cd7f` closed, surviving on the interface because the fix went to the implementation's
+documentation.
+
+`Architecture/ShippedClaimsTests` now pins the **class**: a phrase naming a capability we refuse
+("seat-based billing", "proration") may appear in a shipped summary only where that summary also
+names the refusal. Its first version demanded one fixed negation per phrase and reported
+`ProrationSupport` -- the class holding the guard's message and throw -- as a false claim; that
+summary was accurate and the matcher was not, so the rule became "a mention must name the refusal"
+rather than an exception list growing one entry per honest sentence. Verified by restoring each of
+the four old summaries (each caught) and by misspelling a phrase, which fails the base-set guard
+instead of sweeping clean.
+
+**0.5.0 carries the old text and always will**, published packages being immutable. The next
+version carries the correction.
+
 ### A plan swap changes the label, not the amount
 
 `SwapPlanAsync` on the MollieNative engine assigns the new plan name locally and sends an **empty**

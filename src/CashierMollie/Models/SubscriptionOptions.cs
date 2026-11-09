@@ -21,7 +21,11 @@ public record SubscriptionOptions
     /// <summary>If true, creates a mandate-only authorization (no redirect).</summary>
     public bool MandateOnly { get; init; }
 
-    /// <summary>If true, enables proration on plan swaps.</summary>
+    /// <summary>
+    /// **Not honoured: setting this throws <see cref="NotSupportedException"/>** at every
+    /// documented entrance and in both engines, because no proration is computed. The field
+    /// remains so that the throw can name it; it is not a switch that works.
+    /// </summary>
     public bool Prorate { get; init; }
 
     /// <summary>

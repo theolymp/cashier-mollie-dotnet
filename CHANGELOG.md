@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed -- documentation that ships in the package
+- **Four summaries claimed capabilities this library refuses.** Found in the artifact downloaded
+  back from nuget.org minutes after 0.5.0 went out: `IBillingEngine.UpdateQuantityAsync` promised
+  "seat-based billing" and `SwapPlanAsync` a plan swap without saying the amount is unchanged --
+  that interface is public and DI-registered, so it is a reachable entrance with the wrong sign on
+  it -- while `ISubscriptionBuilder.WithProration` and `SubscriptionOptions.Prorate` still promised
+  proration, although both throw `NotSupportedException`. All four now state the refusal. A test
+  pins the class rather than the sentences: a capability phrase may appear in a shipped summary
+  only where that summary also names the refusal. 0.5.0 is immutable and keeps the old text.
+
 ### Changed -- behaviour, breaking on one path
 - **The Managed engine's repair path no longer carries a seat count into a charge.** When a
   subscription had no order item at all, the engine built one from the subscription, quantity
