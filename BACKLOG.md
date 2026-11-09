@@ -117,7 +117,7 @@ unit price.
 Open: whether these methods should throw like `WithProration()` does. That is a breaking change on
 a published API, so it is a decision rather than a fix.
 
-### Quantity management is not seat-based billing (one exception, found 2026-11-08)
+### Quantity management is not seat-based billing (the one exception closed 2026-11-09)
 
 `UpdateQuantityAsync` / increment / decrement update `Subscription.Quantity`. MollieNative sends
 nothing, so the charge is unchanged; Managed charges `UnitPrice * Quantity` **of the order item**,
@@ -363,10 +363,10 @@ the three ways out, the chosen one is the third:
 So `IInvoiceGenerator<TKey>`, `NullInvoiceGenerator` and their DI registration go at the next
 major. Until then they stay declared and marked as uninvoked, because **removing them is the
 breaking change and shipping them while silently believing otherwise is the bug** -- the same
-shape as `Prorate`. Grouped with the seven dispatchless events and `Locale` below; all of it waits
+shape as `Prorate`. Grouped with the dispatchless events and `Locale` above; all of it waits
 for one major, rather than spending a breaking release each.
 
-### The order header: written by the Managed engine since 2026-11-07 (invoice hook open)
+### The order header: written by the Managed engine since 2026-11-07
 
 The library's only `new Order<TKey>` is in `ChargeBuilder`. `ManagedBillingEngine` creates the only
 order **items** and never sets `OrderId` nor creates a header, which the nullable `long? OrderId`
@@ -402,9 +402,9 @@ A configured format that is unusable (`{1}`, an unbalanced brace) or longer than
 column leaves `Number` null and logs it. The charge has already happened by then: throwing would be
 caught by the loop's handler and reported as a **failed payment for a successful charge**.
 
-**Still open: the invoice hook.** `IInvoiceGenerator<TKey>.GenerateAsync` now has something to
-receive, but calling it needs the generator injected into the engine -- a parameter on a **public
-constructor**, which is not additive. Asked rather than assumed; it is the maintainer's call.
+**The invoice hook this left behind is decided**, in the entry above: it is not called, and it goes
+at the next major. It could not simply be wired here because calling it needs the generator injected
+into the engine -- a parameter on a **public constructor**, which is not additive.
 
 ### Plan price resolution
 
@@ -418,9 +418,8 @@ with `UnitPrice = 0m` by design, with a comment saying so. Proration depends on 
 ### `HasPrecision`: set on all 13 decimal columns (closed 2026-11-07)
 
 Decided by the maintainer on 2026-11-07 for the next minor, together with the two order-item
-columns above: *"Ja, im naechsten Minor"*. All three landed in the same change, `main` now carries
-version 0.5.0, and **nothing is published** -- the publish job is gated on `refs/tags/v*` and no tag
-is cut, so a release still waits for an explicit go-ahead.
+columns above: *"Ja, im naechsten Minor"*. All three landed in the same change and
+shipped in 0.5.0 on 2026-11-09.
 
 Every mapped decimal column declares `decimal(18,4)`. Before, the provider chose: unconstrained
 `numeric` on PostgreSQL, `TEXT` on SQLite, `decimal(18,2)` on SQL Server -- measured there,
@@ -712,14 +711,13 @@ build** of it -- compilation, patches and packaging are not addressed. Acceptabl
 dependency, which this is. In the shipped set someone would have to establish that build's
 provenance, and this entry would not be enough.
 
-### Trusted publishing: workflow switched, policy not yet created (blocks the next release)
+### Trusted publishing: in use since 0.5.0
 
 Decided by the maintainer on 2026-11-07: *"Ja, umstellen"* -- OIDC instead of a long-lived
-`NUGET_API_KEY`. The workflow half is done. **The nuget.org half is not, and until it is, a tag
-would fail to publish.**
+`NUGET_API_KEY`. **0.5.0 was the first release on this path** (2026-11-09, run 42607335823).
 
-What has to exist before a tag is cut, and these are the exact values the policy needs -- the
-workflow filename is matched literally, so a near-miss reads as "no matching policy":
+What a tag depends on, and these are the exact values the policy holds -- the workflow filename is
+matched literally, so a near-miss reads as "no matching policy":
 
 | Field | Value |
 |---|---|
@@ -733,17 +731,24 @@ workflow filename is matched literally, so a near-miss reads as "no matching pol
 into its own workflow would buy a tidier filename and lose that.
 
 Also required: a GitHub Environment named `release` holding one secret, `NUGET_USER`, set to the
-nuget.org **profile name** (not the e-mail address). Worth attaching a required reviewer to that
-environment while creating it -- it turns "publish only after a go-ahead" from a convention into
-something the runner enforces, and a NuGet version number cannot be withdrawn.
+nuget.org **profile name** (not the e-mail address). The environment carries a required reviewer
+(read from the environments API), which turns "publish only after a go-ahead" from a convention
+into something the runner enforces, and a NuGet version number cannot be withdrawn.
 
-The old `NUGET_API_KEY` secret is deliberately left in place, unused. Removing it is a one-way
-door and it costs nothing to keep until a release has gone out on the new path.
+The old `NUGET_API_KEY` secret was deliberately left in place, unused, until a release had gone
+out on the new path. One now has, so the reason for keeping it is gone. Open: removing it, which is
+a one-way door and the maintainer's to do.
 
 Failure modes, so neither is mistaken for the other: no policy means `NuGet/login` fails and the
 run goes red, which is correct. The path this replaced failed the other way -- it carried
 `if: env.NUGET_API_KEY != ''`, so a tag with no secret configured produced a **green run that
 published nothing**.
+
+The red case happened on the first attempt at 0.5.0: `NUGET_USER` named an account nuget.org does
+not have, `NuGet/login` failed, nothing was pushed. Correcting the secret and re-running the same
+tag was enough (attempt 3 of that run published; attempt 2 was cancelled), so no version number was
+spent. When checking such a name from outside, a 404 on the profile page means "no such account"
+only because a profile without packages still returns 200.
 
 ### Absolute build paths: removed from the artifact, still live in published images (2026-11-08)
 
@@ -778,8 +783,9 @@ nothing, and an empty search set satisfies any expectation.
   did nothing, here it was missing and the comparison did too much.
 
 **Open, and not ours to close:** published packages are immutable. 0.3.0 and 0.4.0 keep their
-paths, and a consumer's image changes only when a new version is published **and** that consumer
-upgrades. The state to report is "mechanism proven, image open".
+paths. 0.5.0 is the first version without one -- verified on the package downloaded back from
+nuget.org: zero absolute paths, the rewritten path present. A consumer's image changes only when
+that consumer upgrades to it. The state to report is "mechanism proven, image open".
 
 ### Scheduled scanning was added, and the timer is now checked (2026-11-07)
 

@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   pins the class rather than the sentences: a capability phrase may appear in a shipped summary
   only where that summary also names the refusal. 0.5.0 is immutable and keeps the old text.
 
+## [0.5.0] - 2026-11-09
+
 ### Changed -- behaviour, breaking on one path
 - **The Managed engine's repair path no longer carries a seat count into a charge.** When a
   subscription had no order item at all, the engine built one from the subscription, quantity
