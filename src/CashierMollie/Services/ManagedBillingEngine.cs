@@ -338,16 +338,22 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 Description = $"{subscription.Plan} subscription",
                 Currency = _options.Currency,
                 UnitPrice = 0m,
-                // Subscription.Quantity is nullable, so an absent value means "one" rather
-                // than "zero".
+                // One, never Subscription.Quantity -- and that is the fix, not a shortcut.
                 //
-                // And this is the one place the field reaches a charge: everywhere else the next
-                // item copies the PREVIOUS item's quantity, which is why three XML summaries said
-                // nothing read it for billing until 2026-11-08. They were describing the ordinary
-                // cycle; this line is the repair, and the item it builds is charged
-                // UnitPrice * Quantity as soon as the consumer prices it. Pinned by
-                // StrandedSubscriptionTests.TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge.
-                Quantity = subscription.Quantity is > 0 ? subscription.Quantity.Value : 1,
+                // Until 0.5.0 this line read the seat count off the subscription, which made this
+                // the ONE path where that field reached a charge: the ordinary cycle copies the
+                // PREVIOUS item's quantity, and three XML summaries said nothing read the field
+                // for billing. The item is created unpriced, so it looked inert, and it was not --
+                // pricing it, which is the step those same summaries prescribe for seats, billed
+                // UnitPrice * seat count.
+                //
+                // Resolved by making the claim true rather than by making seats real: seat-based
+                // billing is a feature this library does not have and MollieNative cannot have,
+                // so one silent path into it was an inconsistency, not a head start. A consumer
+                // who wants a quantity sets it on the item together with the price, exactly as on
+                // every other path. Breaking, with the maintainer's decision on 2026-11-09 and
+                // the measurement that no consumer reads this path today.
+                Quantity = 1,
                 ProcessAt = start.AddDays(DefaultBillingIntervalDays),
             });
             LogScheduledMissingFirstItem(subscription.Id);

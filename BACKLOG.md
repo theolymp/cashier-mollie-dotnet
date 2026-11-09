@@ -100,22 +100,33 @@ nothing, so the charge is unchanged; Managed charges `UnitPrice * Quantity` **of
 and in the ordinary cycle the next item copies the previous item's quantity. To bill a new seat
 count, set the quantity on the pending order item.
 
-**"No billing path reads that field" was wrong, and it shipped.** It stood in three XML summaries
-on `ICashierService` -- so a consumer read it in IntelliSense -- and in a comment sitting on the
-line that reads it. The exception is the repair path: a Managed subscription with no order item at
-all gets one built from the **subscription**, seat count included, and that item is charged
-`UnitPrice * Quantity` the moment the consumer prices it, which is the step the same summary tells
-them to take. A test had asserted the transfer (`Assert.Equal(4, item.Quantity)`) since the repair
-was built; nothing compared it with the sentence.
+**"No billing path reads that field" shipped as a false claim, and is now true instead.** It
+stood in three XML summaries on `ICashierService` -- so a consumer read it in IntelliSense -- and
+in a comment sitting on the line that contradicted it. The exception was the repair path: a Managed
+subscription with no order item at all got one built from the **subscription**, seat count
+included, and that item was charged `UnitPrice * Quantity` the moment the consumer priced it, which
+is the step the same summary tells them to take. A test had asserted the transfer
+(`Assert.Equal(4, item.Quantity)`) since the repair was built; nothing compared it with the
+sentence.
 
-Now measured end to end rather than inferred from the read site: seat count 7, consumer prices the
-repaired item at 9.99, Mollie is asked for **69.93**. Pinned by
-`StrandedSubscriptionTests.TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge`, with the
-amount asserted exactly -- 9.99 would mean the seat count was dropped. Two sabotages of the read
-site (drop to 1, double it) each turn it red.
+Measured end to end before deciding anything, because an item created unpriced looks inert and that
+is how this survived: seat count 7, repaired item priced at 9.99, Mollie asked for **69.93**.
 
-Open: same decision as the swap above. Unchanged by this -- the correction is to the claim, not to
-the behaviour.
+**Fixed 2026-11-09** (maintainer: "fixen ohne grossartig exception zu handlen. nutzt niemand
+bisher!"). The repair writes `Quantity = 1`, like every other path. The direction matters: seats
+were made *not* to reach a charge, rather than made to work everywhere -- seat-based billing is a
+feature this library does not have and MollieNative cannot have, so one silent path into it was an
+inconsistency, not a head start. **Breaking, with no compatibility switch**, which is the decision
+as given. After the fix every remaining read of `Subscription.Quantity` is an increment computing
+its own new value or the `SubscriptionQuantityUpdated` payload -- measured, four sites, none
+billing.
+
+Pinned by `StrandedSubscriptionTests.TheRepairIgnoresSubscriptionQuantity_SoNoPathBillsASeatCount`,
+which asserts the charge is exactly 9.99 **while the subscription still says 7**, plus a theory
+over a null and a set quantity. The old test was not deleted but turned around: the direction is
+what changed, and it is the assertion that would notice the old behaviour returning.
+
+Open: the swap decision above is untouched by this.
 
 ### Coupons: wired, and only the Managed engine can act on them
 

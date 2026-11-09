@@ -6,15 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-### Fixed -- documentation that ships in the package
-- **"No billing path reads `Subscription.Quantity`" was false, and consumers read it in
-  IntelliSense.** It stood in three XML summaries on `ICashierService` and in a comment on the very
-  line that reads the field. True of the ordinary cycle, where the next order item copies the
-  previous item's quantity; false of the repair path, where a Managed subscription with no order
-  item gets one built from the subscription, seat count included -- and that item is charged
-  `UnitPrice * Quantity` as soon as the consumer prices it, which is the step the same summary
-  tells them to take. Measured end to end: seat count 7, item priced at 9.99, Mollie asked for
-  69.93. The behaviour is unchanged; only the claim was wrong.
+### Changed -- behaviour, breaking on one path
+- **The Managed engine's repair path no longer carries a seat count into a charge.** When a
+  subscription had no order item at all, the engine built one from the subscription, quantity
+  included -- the only path on which `Subscription.Quantity` reached a charge, while three shipped
+  XML summaries said no billing path read it. The item is created unpriced, so it looked inert;
+  pricing it, the step those summaries prescribe for seats, billed `UnitPrice * seat count`
+  (measured: quantity 7, price 9.99, Mollie asked for 69.93). The repair now writes a quantity of
+  one, like every other path, so the documented claim is true rather than nearly true.
+  **No compatibility switch**, deliberately: seat-based billing is not a feature of this library
+  and MollieNative cannot have it, so a silent path into it was an inconsistency. If you relied on
+  it, set the quantity on the pending order item together with its price.
 
 ### Changed -- supply chain
 - **The published assembly no longer carries this repository's absolute build path.** `Pack` now

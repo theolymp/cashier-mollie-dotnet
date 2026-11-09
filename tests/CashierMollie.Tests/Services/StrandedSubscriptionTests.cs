@@ -85,7 +85,8 @@ public class StrandedSubscriptionTests : IDisposable
         Assert.Equal(sub.Id, item.SubscriptionId);
         Assert.Equal("u1", item.OwnerId);
         Assert.Equal("EUR", item.Currency);
-        Assert.Equal(4, item.Quantity);
+        // One, not the subscription's 4: since 0.5.0 the repair does not carry a seat count.
+        Assert.Equal(1, item.Quantity);
         // Priced by the consumer, not by the library -- same as the direct-activation path.
         Assert.Equal(0m, item.UnitPrice);
         Assert.Null(item.ProcessedAt);
@@ -105,10 +106,16 @@ public class StrandedSubscriptionTests : IDisposable
         Assert.True(item.ProcessAt > DateTimeOffset.UtcNow.AddDays(29));
     }
 
-    [Fact]
-    public async Task AnAbsentQuantityCountsAsOne_NotAsZero()
+    // Both inputs, one expectation. This was "an absent quantity counts as one, not as zero",
+    // which tested a conditional that no longer exists -- after the fix there is nothing to
+    // distinguish null from 9, and a test whose name describes a branch that is gone misleads the
+    // next reader. The claim worth keeping is that neither value reaches the item.
+    [Theory]
+    [InlineData(null)]
+    [InlineData(9)]
+    public async Task NoSubscriptionQuantityReachesTheRepairedItem(int? quantity)
     {
-        await SeedAsync(quantity: null);
+        await SeedAsync(quantity: quantity);
 
         await _managed.ProcessDueItemsAsync();
 
@@ -231,21 +238,19 @@ public class StrandedSubscriptionTests : IDisposable
         Assert.Null(item.ProcessedAt);
     }
 
-    // --- the one path where Subscription.Quantity reaches a charge ----------
+    // --- Subscription.Quantity reaches no charge, including here --------------
 
     [Fact]
-    public async Task TheRepairIsTheOnePathWhereSubscriptionQuantityReachesACharge()
+    public async Task TheRepairIgnoresSubscriptionQuantity_SoNoPathBillsASeatCount()
     {
-        // Until 2026-11-08 three shipped XML summaries said flatly that "no billing path reads
-        // that field", and the comment on the very line that reads it said the same. Both were
-        // true of the ordinary cycle -- the next item copies the PREVIOUS item's quantity -- and
-        // false here: the repair above builds an item from the SUBSCRIPTION, seat count included,
-        // and that item is charged UnitPrice * Quantity.
+        // This test was written on 2026-11-08 asserting the opposite, and it was right then:
+        // the repair built its item from the SUBSCRIPTION, so this was the one path on which a
+        // seat count reached a charge, while three shipped summaries said no billing path read
+        // the field. Fixed on 2026-11-09 by making the claim true -- the repair now sets one, a
+        // consumer sets a quantity on the item together with its price as on every other path.
         //
-        // The gap matters because of the documented workflow for seats: "set the quantity on the
-        // pending OrderItem". A consumer who read "nothing reads this field" and set it anyway,
-        // believing it inert, gets a repaired item carrying it -- and bills it the moment they
-        // price that item, which is the step the documentation tells them to take.
+        // Kept pointed at the same mechanism rather than deleted: the direction is what changed,
+        // and the assertion below is what would notice the old behaviour coming back.
         var sub = await SeedAsync(quantity: 7);
 
         // The repair runs at the top of ProcessDueItemsAsync, and it schedules the item 30 days
@@ -253,8 +258,8 @@ public class StrandedSubscriptionTests : IDisposable
         await _managed.ProcessDueItemsAsync();
 
         var repaired = await _db.OrderItems.SingleAsync();
-        Assert.Equal(7, repaired.Quantity);          // from the subscription, not from a prior item
-        Assert.Equal(0m, repaired.UnitPrice);        // inert until priced, which is why it looked inert
+        Assert.Equal(1, repaired.Quantity);          // NOT the subscription's 7
+        Assert.Equal(0m, repaired.UnitPrice);        // priced by the consumer, as everywhere else
 
         _db.Payments.Add(new Payment<string>
         {
@@ -267,11 +272,13 @@ public class StrandedSubscriptionTests : IDisposable
 
         await _managed.ProcessDueItemsAsync();
 
-        // 9.99 * 7, and the 7 came from Subscription.Quantity. Asserted as the exact amount
-        // rather than "not 9.99": a charge of 9.99 would mean the seat count was dropped, and a
-        // charge of anything else would mean neither story is right.
+        // 9.99, not 9.99 * 7. Asserted as the exact amount rather than "not 69.93": 69.93 is
+        // the old behaviour returning, and any third number means neither story holds. The seat
+        // count on the subscription is still 7 while this is charged, which is the whole claim --
+        // the field is set, and no charge reads it.
+        Assert.Equal(7, (await _db.Subscriptions.AsNoTracking().SingleAsync()).Quantity);
         await _mollie.Received(1).CreateRecurringPaymentAsync(
-            Arg.Any<string>(), Arg.Any<string>(), 69.93m, "EUR",
+            Arg.Any<string>(), Arg.Any<string>(), 9.99m, "EUR",
             Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
     }
