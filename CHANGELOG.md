@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- dependencies
+- **Mollie.Api 4.18.0 -> 4.20.0**, which reaches you transitively. Its assembly is strong-named
+  from 4.20.0 on; the API this library calls is unchanged. Measured before the bump, across
+  Mollie.Api 4.18.0 and 4.20.0 on net10.0 and net11.0: the amount string sent to Mollie is the
+  same in all four, rounded half away from zero to the currency's own places (`10.005` EUR becomes
+  `10.01`, JPY has none). That is now a test, so a later update cannot move a charge by a cent
+  unnoticed.
+- EF Core 10.0.3 -> 10.0.15. EF Core stays on 10.x while the PostgreSQL provider has no stable 11.
+
 ### Fixed -- documentation that ships in the package
 - **Four summaries claimed capabilities this library refuses.** Found in the artifact downloaded
   back from nuget.org minutes after 0.5.0 went out: `IBillingEngine.UpdateQuantityAsync` promised

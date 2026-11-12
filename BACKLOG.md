@@ -490,6 +490,12 @@ a fourth. Do not read a number off this page; the run prints the current set. Wh
   in the fleet from the network copy, here from the local package cache, same bytes. The nuspec
   pins repository commit `9c6f40725eee9f687e7d369a0bded64664ad38d2`, an immovable ref for
   re-checking, unlike `xunit.abstractions` whose declared URL points at a moving branch.
+  **Re-read for 4.20.0 on 2026-11-12**, because the resolution is version-bound and the bump made
+  it UNKNOWN again: same text apart from line endings (1068 chars, no CRLF), same five clauses,
+  nothing after the closing one. The SQLite native build changed package id with SQLitePCLRaw
+  3.0.5 (`SourceGear.sqlite3` became `SQLite` 3.53.4, same 61-character file) and was re-read too.
+  Left UNKNOWN on purpose, both test-only and reported on every run: `SqlClient.SNI.runtime`
+  6.0.3 (the EULA entry covers 6.0.2 only) and `Identity.Client.NativeInterop` 0.20.6.
 - `Microsoft.Data.SqlClient.SNI.runtime` 6.0.2 is **not open source**, which is worse than
   unnameable and was nearly recorded as the same thing. Its nuspec declares
   `<license type="file">LICENSE.txt</license>` -- a file reference, which is the whole reason the

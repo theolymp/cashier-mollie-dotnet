@@ -145,6 +145,14 @@ RESOLVED_BY_HAND = {
     # here from the local package cache, same bytes. The nuspec also pins repository commit
     # 9c6f40725eee9f687e7d369a0bded64664ad38d2 -- an immovable ref, unlike xunit.abstractions,
     # whose declared licence URL points at a moving branch.
+    #
+    # Re-read for 4.20.0 on 2026-11-12, because the entry is version-bound and the bump made the
+    # component UNKNOWN again, as designed. LICENSE is 1068 chars (sha256 60897f389aa5e92e) against
+    # 1089 before: the 21 characters are the CRLF line endings 4.18.0 had and 4.20.0 does not.
+    # With whitespace normalised the two texts are identical, the five clauses are present and
+    # nothing follows the closing one. The nuspec pins commit
+    # e981b0b5fb544fc469c513778f5010d7b615f6dc, which is immovable although it now also names the
+    # branch it was built from.
     # Public domain, and the thinnest evidence of the round: LICENSE.txt is 61 characters --
     # "SQLite is Public Domain" plus a link (sha256 99464c3a88df7b70, read from the nupkg). So the
     # linked authority was read too, and states it in terms: "All of the code and documentation in
@@ -156,18 +164,23 @@ RESOLVED_BY_HAND = {
     # it. Acceptable for a test-only dependency, which this is -- it arrives with the SQLite
     # harness. If it ever appeared in the shipped set, someone would have to establish the
     # provenance of that build, and this entry would not be enough.
-    ("SourceGear.sqlite3", "3.50.4.5"): (
+    #
+    # Since 2026-11-12 the native build arrives under a NEW package id: SQLitePCLRaw 3.0.5 depends
+    # on `SQLite` 3.53.4 where 3.0.3 depended on `SourceGear.sqlite3` 3.50.4.5. Same author (Eric
+    # Sink), copyright "SourceGear, LLC", and byte-for-byte the same 61-character LICENSE.txt
+    # (sha256 99464c3a88df7b70, read from both nupkgs). The caveat above applies unchanged.
+    ("SQLite", "3.53.4"): (
         "LicenseRef-PublicDomain-SQLite",
         "LICENSE.txt in the nupkg is 61 chars, \"SQLite is Public Domain\" plus a link to "
         "sqlite.org/copyright.html, which states the dedication in terms. NO SPDX id fits: the "
         "blessing text is absent and CC0 is not invoked. Covers SQLite itself, NOT the provenance "
         "of this particular build",
     ),
-    ("Mollie.Api", "4.18.0"): (
+    ("Mollie.Api", "4.20.0"): (
         "MIT",
-        "read from LICENSE inside the nupkg (1089 chars, sha256 13e3f30c8400e4f3). Complete MIT "
-        "text, no additional conditions after the closing clause. nuspec pins repository commit "
-        "9c6f40725eee9f687e7d369a0bded64664ad38d2 for re-checking",
+        "read from LICENSE inside the nupkg (1068 chars, sha256 60897f389aa5e92e). Complete MIT "
+        "text, no additional conditions after the closing clause, identical to 4.18.0 apart from "
+        "line endings. nuspec pins repository commit e981b0b5fb544fc469c513778f5010d7b615f6dc",
     ),
     ("xunit.abstractions", "2.0.3"): (
         "Apache-2.0",
@@ -582,9 +595,9 @@ def self_test():
         ({"name": "Microsoft.Data.SqlClient.SNI.runtime", "version": "6.0.3",
           "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
         # A read public-domain dedication clears, at its exact version.
-        ({"name": "SourceGear.sqlite3", "version": "3.50.4.5",
+        ({"name": "SQLite", "version": "3.53.4",
           "licenses": [{"license": {"name": "Unknown - See URL"}}]}, PERMISSIVE_NAME),
-        ({"name": "SourceGear.sqlite3", "version": "3.50.4.6",
+        ({"name": "SQLite", "version": "3.53.5",
           "licenses": [{"license": {"name": "Unknown - See URL"}}]}, UNKNOWN),
         # And a component that declares the marker ITSELF does not clear: the BOM is not a reader.
         ({"name": "Self.Declared", "version": "1",

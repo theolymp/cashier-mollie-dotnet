@@ -93,7 +93,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 
 - [.NET 10](https://dotnet.microsoft.com/download) or later
 - [Entity Framework Core 10](https://www.nuget.org/packages/Microsoft.EntityFrameworkCore)
-- [Mollie.Api 4.18+](https://www.nuget.org/packages/Mollie.Api)
+- [Mollie.Api 4.20+](https://www.nuget.org/packages/Mollie.Api)
 - A [Mollie account](https://www.mollie.com/signup) with recurring payments enabled
 
 ## Installation
