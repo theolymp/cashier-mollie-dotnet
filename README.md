@@ -13,6 +13,7 @@
   <a href="https://www.nuget.org/packages/CashierMollie"><img src="https://img.shields.io/nuget/v/CashierMollie.svg" alt="NuGet"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/.NET-10.0-purple.svg" alt=".NET 10">
+  <img src="https://img.shields.io/badge/.NET-11.0-purple.svg" alt=".NET 11">
 </p>
 
 ---
@@ -91,7 +92,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 
 ## Requirements
 
-- [.NET 10](https://dotnet.microsoft.com/download) or later
+- [.NET 10](https://dotnet.microsoft.com/download) or later. The package ships builds for net10.0 and net11.0
 - [Entity Framework Core 10](https://www.nuget.org/packages/Microsoft.EntityFrameworkCore)
 - [Mollie.Api 4.20+](https://www.nuget.org/packages/Mollie.Api)
 - A [Mollie account](https://www.mollie.com/signup) with recurring payments enabled

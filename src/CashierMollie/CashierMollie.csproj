@@ -1,7 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Both, not the newer one alone: a library that drops net10.0 forces every consumer onto
+         net11.0 at once, and net10.0 is supported for as long as net11.0 is (both end
+         2028-11-14). Money is identical across the two: src/ holds no floating point, which is
+         the one place net11.0 changed arithmetic ((decimal)double became exact):
+         Architecture/NoFloatingPointTests keeps it that way, MollieAmountWireFormatTests pins the
+         rounding on both. -->
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

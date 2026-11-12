@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added -- target frameworks
+- **net11.0 next to net10.0.** The package ships both builds; net10.0 is not dropped, because
+  that would force every consumer onto net11.0 at once, and both are supported until 2028-11-14.
+  EF Core stays on 10.x for both. Money is identical on the two: net11.0 made `(decimal)double`
+  exact, and this library has no floating point anywhere in its source, which is now a test
+  rather than a measurement. Every test runs on both frameworks, and one of them proves each run
+  executes on the framework it names.
+
 ### Changed -- dependencies
 - **Mollie.Api 4.18.0 -> 4.20.0**, which reaches you transitively. Its assembly is strong-named
   from 4.20.0 on; the API this library calls is unchanged. Measured before the bump, across

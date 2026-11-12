@@ -7,7 +7,7 @@ Thank you for considering contributing! This project aims to bring feature parit
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/cashier-mollie-dotnet.git`
 3. Create a branch: `git checkout -b feature/my-feature`
-4. Install .NET 10 SDK
+4. Install the .NET 11 SDK and the .NET 10 runtime (the tests run on both frameworks)
 5. Build: `dotnet build`
 6. Test: `dotnet test`
 
@@ -15,7 +15,7 @@ Thank you for considering contributing! This project aims to bring feature parit
 
 ### Prerequisites
 
-- .NET 10 SDK
+- .NET 11 SDK (pinned in `global.json`) and the .NET 10 runtime
 - An IDE with C# support (VS Code, Rider, Visual Studio)
 
 ### Code Style

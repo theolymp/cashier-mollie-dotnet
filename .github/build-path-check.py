@@ -51,7 +51,13 @@ EXIT_FOUND = 3
 # references and are not redistributed -- so `foreign == 0` is the shape of the artifact, not a
 # broken classifier. What can still go wrong is the search set silently becoming empty or
 # growing, so that is what gets the bolt.
-SHIPPED_ASSEMBLY = "lib/net10.0/CashierMollie.dll"
+#
+# Two since 2026-11-12, one per target framework: the package ships the same assembly built for
+# net10.0 and for net11.0, and each copy carries its own PDB path (obj/Release/<tfm>/). Each is
+# judged on its own and the package takes the worst verdict, so a path surviving in one copy is a
+# finding even when the other is clean. A package that loses one of the two is not measured, for
+# the same reason a package that grows a third is not: the claim is the set.
+SHIPPED_ASSEMBLIES = ["lib/net10.0/CashierMollie.dll", "lib/net11.0/CashierMollie.dll"]
 
 _SELF_TEST_RUNNING = False
 
@@ -67,7 +73,7 @@ def _occurrences(data, needle):
     return utf8, utf16
 
 
-def shipped_assembly(package_path):
+def shipped_assemblies(package_path):
     if not os.path.exists(package_path):
         raise NotMeasured("%s does not exist, so nothing was packed to measure" % package_path)
     try:
@@ -75,19 +81,30 @@ def shipped_assembly(package_path):
     except (zipfile.BadZipFile, OSError) as error:
         raise NotMeasured("%s is not a readable package: %s" % (package_path, error))
 
-    assemblies = [name for name in archive.namelist() if name.endswith(".dll")]
+    assemblies = sorted(name for name in archive.namelist() if name.endswith(".dll"))
     # An empty search set satisfies "no absolute paths found" for any expectation.
     if not assemblies:
         raise NotMeasured("%s ships no assembly at all, so the search set is empty" % package_path)
-    if assemblies != [SHIPPED_ASSEMBLY]:
+    if assemblies != SHIPPED_ASSEMBLIES:
         raise NotMeasured(
-            "%s ships %r, expected exactly [%r]. The search set is the claim: an extra assembly "
-            "would be judged by nothing, a renamed one by a check looking elsewhere."
-            % (package_path, assemblies, SHIPPED_ASSEMBLY))
-    return archive.read(assemblies[0])
+            "%s ships %r, expected exactly %r. The search set is the claim: an extra assembly "
+            "would be judged by nothing, a renamed or missing one by a check looking elsewhere."
+            % (package_path, assemblies, SHIPPED_ASSEMBLIES))
+    return {name: archive.read(name) for name in assemblies}
 
 
-def verdict(reference, mapped, build_root):
+def combine(codes):
+    """The package's verdict from its assemblies' verdicts: the worst one wins."""
+    if not codes:
+        raise NotMeasured("no assembly was judged, so there is no verdict to combine")
+    if EXIT_FOUND in codes:
+        return EXIT_FOUND
+    if EXIT_NOT_MEASURED in codes:
+        return EXIT_NOT_MEASURED
+    return EXIT_PROVEN
+
+
+def verdict(reference, mapped, build_root, assembly=SHIPPED_ASSEMBLIES[0]):
     """Returns (exit_code, lines). Raises NotMeasured when the pair cannot answer."""
     if not build_root or not build_root.startswith("/"):
         raise NotMeasured("the build root %r is not an absolute path" % build_root)
@@ -98,7 +115,7 @@ def verdict(reference, mapped, build_root):
 
     base = ("search set %s; reference run: %d UTF-8 + %d UTF-16LE; mapped run: %d + %d; "
             "rewritten relative paths in the mapped run: %d"
-            % (SHIPPED_ASSEMBLY, ref_utf8, ref_utf16, map_utf8, map_utf16, rewritten))
+            % (assembly, ref_utf8, ref_utf16, map_utf8, map_utf16, rewritten))
 
     # Abort condition, not a pass: if the reference run carries no build path, the mapped run's
     # zero says nothing about PathMap -- it says the compiler was not emitting one anyway.
@@ -207,19 +224,38 @@ def self_test():
         failures.append("a UTF-16LE build path in the mapped run: expected exit %d and a UTF-16 "
                         "count of 1, got %d and %r" % (EXIT_FOUND, actual, spoken.strip()))
 
+    # Worst wins, in every pairing that matters: one clean copy must not cover for the other.
+    for codes, wanted, case in (
+        ([EXIT_PROVEN, EXIT_PROVEN], EXIT_PROVEN, "both copies rewritten"),
+        ([EXIT_PROVEN, EXIT_FOUND], EXIT_FOUND, "a path surviving in the second copy only"),
+        ([EXIT_FOUND, EXIT_PROVEN], EXIT_FOUND, "a path surviving in the first copy only"),
+        ([EXIT_PROVEN, EXIT_NOT_MEASURED], EXIT_NOT_MEASURED, "one copy unmeasurable"),
+        ([EXIT_NOT_MEASURED, EXIT_FOUND], EXIT_FOUND, "a finding beside an unmeasurable copy"),
+    ):
+        if combine(codes) != wanted:
+            failures.append("%s: combine(%r) = %d, expected %d" % (case, codes, combine(codes), wanted))
+    try:
+        combine([])
+        failures.append("combine([]): an empty set of verdicts was given a verdict")
+    except NotMeasured:
+        pass
+
     # The search-set guards, which the cases above cannot reach: they bypass the package reader.
+    both = {name: "x" for name in SHIPPED_ASSEMBLIES}
     for entries, phrase, case in (
         ({"README.md": "no assembly here"}, "search set is empty", "a package shipping no assembly"),
-        ({SHIPPED_ASSEMBLY: "x", "lib/net10.0/Extra.dll": "y"}, "would be judged by nothing",
-         "a package that grew a second assembly"),
-        ({"lib/net10.0/Renamed.dll": "x"}, "by a check looking elsewhere",
+        (dict(both, **{"lib/net10.0/Extra.dll": "y"}), "would be judged by nothing",
+         "a package that grew a further assembly"),
+        ({SHIPPED_ASSEMBLIES[0]: "x"}, "missing one by a check looking elsewhere",
+         "a package that lost one target framework"),
+        ({"lib/net10.0/Renamed.dll": "x", SHIPPED_ASSEMBLIES[1]: "x"}, "renamed or missing",
          "a package whose assembly was renamed"),
     ):
         path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "bpc-selftest.nupkg")
         with open(path, "wb") as handle:
             handle.write(_package(entries))
         try:
-            shipped_assembly(path)
+            shipped_assemblies(path)
             failures.append("%s: no NotMeasured was raised" % case)
         except NotMeasured as reason:
             if phrase not in str(reason):
@@ -235,9 +271,9 @@ def self_test():
     return True
 
 
-def _decide(reference, mapped, build_root):
+def _decide(reference, mapped, build_root, assembly=SHIPPED_ASSEMBLIES[0]):
     try:
-        code, lines = verdict(reference, mapped, build_root)
+        code, lines = verdict(reference, mapped, build_root, assembly)
     except NotMeasured as reason:
         print("::warning::NOT MEASURED: %s" % reason)
         print("   This is not 'the build path is gone' and not a finding. Nothing was concluded.")
@@ -258,14 +294,15 @@ def main(argv):
         return EXIT_NOT_MEASURED
 
     try:
-        reference = shipped_assembly(argv[1])
-        mapped = shipped_assembly(argv[2])
+        reference = shipped_assemblies(argv[1])
+        mapped = shipped_assemblies(argv[2])
     except NotMeasured as reason:
         print("::warning::NOT MEASURED: %s" % reason)
         print("   This is not 'the build path is gone' and not a finding. Nothing was concluded.")
         return EXIT_NOT_MEASURED
 
-    return _decide(reference, mapped, argv[3])
+    return combine([_decide(reference[name], mapped[name], argv[3], name)
+                    for name in SHIPPED_ASSEMBLIES])
 
 
 if __name__ == "__main__":

@@ -51,6 +51,31 @@ public class NoFloatingPointTests
         Assert.DoesNotMatch(FloatingPoint, "// a double charge would follow; the float of the account");
     }
 
+    /// <summary>
+    /// Known positive for the whole test matrix: this run executes on the framework it was built
+    /// for, and that framework converts as measured.
+    /// </summary>
+    /// <remarks>
+    /// Without it, a net11.0 run that silently executed on a net10.0 host -- or the reverse --
+    /// would pass every other test here, and the claim "money is identical on both" would rest on
+    /// one framework. The value is computed at run time on purpose: a constant expression is
+    /// converted by the compiler, not by the runtime under test.
+    /// </remarks>
+    [Fact]
+    public void EachRunExecutesOnItsOwnFramework()
+    {
+        double sum = 0.1;
+        sum += 0.2;
+        string converted = ((decimal)sum).ToString(System.Globalization.CultureInfo.InvariantCulture);
+#if NET11_0_OR_GREATER
+        Assert.Equal(11, Environment.Version.Major);
+        Assert.Equal("0.3000000000000000444089209850", converted);
+#else
+        Assert.Equal(10, Environment.Version.Major);
+        Assert.Equal("0.3", converted);
+#endif
+    }
+
     [Fact]
     public void NoSourceFileUsesFloatingPoint()
     {
