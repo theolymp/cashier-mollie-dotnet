@@ -756,6 +756,42 @@ tag was enough (attempt 3 of that run published; attempt 2 was cancelled), so no
 spent. When checking such a name from outside, a 404 on the profile page means "no such account"
 only because a profile without packages still returns 200.
 
+### Renovate and the merge gate: config in the repository, both GitHub halves open (2026-11-12)
+
+`renovate.json` exists since 2026-11-12 and validates (`renovate-config-validator --strict`).
+**It does nothing yet, measured:** this repository lives on GitHub, the fleet's Renovate does not
+reach it, and no Renovate app has ever acted here -- zero pull requests of any author, no
+onboarding PR, no dependency-dashboard issue, one branch (`main`), read from the public API. So
+until the first half below is done, nothing updates itself, and every version here moves only
+when someone moves it by hand, which is the state this entry exists to end.
+
+The config follows the fleet's rule set: patch, minor, digest and lock-file maintenance merge
+automatically, **majors get a PR of their own without dashboard approval** (approval would create
+no PR at all), and EF Core, Npgsql and the Pkcs CVE pin are held below 11 and the SDK below 12
+(ADR-0016). Majors open today, measured 2026-11-12, all left out of the manual bump on purpose:
+`Mollie.Api` 5.x (touches every amount we send, so the wire-format tests are its review),
+`Microsoft.NET.Test.Sdk` 18, `coverlet.collector` 10, `NSubstitute` 6, `xunit.runner.visualstudio`
+4.
+
+**Automerge is only safe behind a gate, and the gate is not on.** `main` is unprotected, measured:
+`protected: false`, no required status check. The PR pipeline itself is a real gate already --
+`build-and-test` runs on `pull_request` and blocks on the vulnerability scan, the licence verdict,
+the build and every test on both frameworks against real PostgreSQL and SQL Server -- but nothing
+stops a merge while it is red. Both halves need repository admin rights, which this session does
+not have, so they are the maintainer's:
+
+1. **Gate first.** A ruleset (or branch protection) on `main` requiring the status check
+   `build-and-test` -- that is the check name the jobs API reports. Decision inside it: a required
+   check also applies to direct pushes, so either the pushing account is on the bypass list or
+   work moves to PRs. Then the evidence, the GitHub counterpart of the fleet's 405: open a PR
+   whose check is red and call `PUT /repos/theolymp/cashier-mollie-dotnet/pulls/<n>/merge`; the
+   answer must be **405** naming the required check. A merge that succeeds there means the gate
+   is not on, whatever the settings page shows.
+2. **Then Renovate:** install the Renovate GitHub app for this repository, or add it to a
+   self-hosted Renovate with a GitHub token. In this order, because the config already says
+   `automerge`, and the app arriving before the gate would merge on green checks with nothing
+   stopping a merge on red ones.
+
 ### Absolute build paths: removed from the artifact, still live in published images (2026-11-08)
 
 Pantheon found absolute build paths inside release images; the CRA evidence rests on image digest

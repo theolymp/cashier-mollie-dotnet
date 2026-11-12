@@ -1,0 +1,86 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard"
+  ],
+  "timezone": "Europe/Berlin",
+  "schedule": [
+    "* * * * 6,0"
+  ],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "labels": [
+    "dependencies"
+  ],
+  "semanticCommitType": "chore",
+  "commitMessagePrefix": "chore(deps):",
+  "rangeStrategy": "bump",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ],
+    "prCreation": "immediate"
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 5am on the first day of the month"
+    ],
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "Patch and minor in one PR, merged automatically once the PR's checks are green. The gate is the build-and-test job, which runs on pull_request and blocks on the vulnerability scan, the SBOM licence verdict, the build with TreatWarningsAsErrors and every test on net10.0 and net11.0, PostgreSQL and SQL Server included -- among them the pinned wire amounts sent to Mollie. Automerge is only safe once main requires that check; see BACKLOG.md, 'Renovate and the merge gate'.",
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "groupName": "non-major dependencies",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Digests and pins (GitHub Actions) automatically behind the same gate: they change no version, only the pinned source.",
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Majors one by one, as a PR that is reviewed, never automerged. Deliberately WITHOUT dependencyDashboardApproval: with it no PR is created, nobody sees the update, and that is how a fleet dependency once sat for months. Mollie.Api 5 is the first of these and touches every amount this library sends.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep the SDK on 11.x: net11.0 since 2026-11-12 (ADR-0016). 12 is a step of its own, together with a target framework.",
+      "matchDatasources": [
+        "dotnet-version"
+      ],
+      "matchPackageNames": [
+        "dotnet-sdk"
+      ],
+      "allowedVersions": "<12.0.0"
+    },
+    {
+      "description": "EF Core, Npgsql and the Pkcs CVE pin stay on 10.x (ADR-0016): the PostgreSQL provider has no stable 11, and EF Core 11 without a matching provider breaks the data layer. The Pkcs pin belongs to the same 10.0 band as the SQL Server provider it patches. Lift together once Npgsql 11 is GA. Without this rule a major PR would appear that may neither be merged nor closed.",
+      "matchPackageNames": [
+        "Microsoft.EntityFrameworkCore*",
+        "Npgsql*",
+        "System.Security.Cryptography.Pkcs"
+      ],
+      "allowedVersions": "<11.0.0"
+    }
+  ],
+  "platformAutomerge": true
+}
