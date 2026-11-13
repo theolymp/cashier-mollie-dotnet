@@ -792,6 +792,10 @@ not have, so they are the maintainer's:
    `automerge`, and the app arriving before the gate would merge on green checks with nothing
    stopping a merge on red ones.
 
+**State on 2026-11-13:** neither half is done. The click paths for both went to the maintainer;
+the 405 evidence is the next step after the gate and needs an authenticated GitHub session, which
+this one does not have.
+
 ### Absolute build paths: removed from the artifact, still live in published images (2026-11-08)
 
 Pantheon found absolute build paths inside release images; the CRA evidence rests on image digest
