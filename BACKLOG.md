@@ -792,9 +792,21 @@ not have, so they are the maintainer's:
    `automerge`, and the app arriving before the gate would merge on green checks with nothing
    stopping a merge on red ones.
 
-**State on 2026-11-13:** neither half is done. The click paths for both went to the maintainer;
-the 405 evidence is the next step after the gate and needs an authenticated GitHub session, which
-this one does not have.
+**State on 2026-11-13: the gate is on and proven; Renovate is not installed.** Ruleset 27213286
+on the default branch requires `build-and-test`, bound to GitHub Actions as its source (integration
+15368), so a status of the same name from anywhere else does not satisfy it; deletion and
+force-push are refused too. **No bypass actors**, deliberately: a bypass for admins would also let
+an admin merge a red PR, and every account that works here is an admin. The consequence is that
+`main` takes changes only through pull requests -- a direct push has no status yet and is refused.
+"Allow auto-merge" is on, which Renovate's `platformAutomerge` needs.
+
+Evidence, from PR #1 (a deliberately failing test, closed unmerged, branch deleted):
+`PUT /pulls/1/merge` returned **405** twice -- *"Required status check "build-and-test" is
+queued"* while the run was pending, and *"... is failing"* once it was red. The known positive is
+the pull request that carried this paragraph: green, and merged.
+
+Still open, maintainer only: install the Renovate GitHub app for this repository (step 2 above).
+Until then nothing updates itself.
 
 ### Absolute build paths: removed from the artifact, still live in published images (2026-11-08)
 
