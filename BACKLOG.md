@@ -411,6 +411,52 @@ into the engine -- a parameter on a **public constructor**, which is not additiv
 There is no plan→price mapping. Consumers price items themselves; the first order item is created
 with `UnitPrice = 0m` by design, with a comment saying so. Proration depends on this.
 
+### Billing plan for 0.6.0: agreed 2026-11-14, not built until the prices are confirmed
+
+Robin's decision, relayed by root on 2026-11-14: three tiers (single module from a suite, suite, all-inclusive),
+streamernet sold separately, monthly only, a 7-day trial per account, upgrades immediate with credit. This
+opens the gate on variant A above **once the prices are confirmed** -- root: "Kein Bau, bevor die Preise
+stehen." The unit catalogue (22 plan ids, net prices, the "contains" graph) lives in
+`modcockpit_management/billing/PREISMODELL-VORSCHLAG-2026-11-14.md` section 7; the consumer side is in
+`streamcore_identity`. The split was agreed with both sessions:
+
+- **One subscription per unit.** The cycle is a fixed 30 days (Mollie interval `30 days`), not a calendar month.
+- **The library knows plan ids, not the catalogue.** Which subscriptions an upgrade replaces comes from the
+  consumer: `UpgradeAsync(owner, newPlanId, replaces)`, with identity passing the transitive set of the
+  owner's active subscriptions that the new unit contains.
+- **Price seam** (draft): `IPlanPriceResolver<TKey>.ResolveAsync(owner, planId)` returns net amount, currency,
+  tax rate and statement text. The library computes the charged gross as
+  `round(net x (1 + rate/100), 2, AwayFromZero)`. Which rate applies (19 %, OSS destination rate, 0 % reverse
+  charge) is the consumer's: **no tax logic in this library.**
+- **Variant A:** the Mollie subscription is created once the first payment is paid, starting one cycle later.
+  The first payment is the full first month, taken at the end of the trial; it also creates the mandate.
+- **Upgrade:** the replaced subscriptions end immediately. Their remaining value is
+  `net x remaining whole days / 30`, rounded to the cent away from zero, with the current day counted as used.
+  It is credited net against the new unit's net price; the remainder is taxed once and charged from the
+  existing mandate; the new unit starts a fresh 30-day cycle today. **Credit beyond the first payment is
+  refunded** onto the replaced subscriptions' original payments rather than held. This is management's
+  preference and the cheaper build, because `IRefundService` exists.
+- **Tax treatment changed since the old invoice** (a VAT id added): there is no offset. The full remaining
+  value is refunded and the full price charged. The consumer decides this and passes it as an option.
+- **Downgrade:** it takes effect at the end of the paid cycle, without a refund. On MollieNative that means
+  updating the Mollie amount and description now, because Mollie charges at the start of a cycle. Today's
+  swap sends an empty update (entry above), so this is new work, not existing behaviour.
+- **Schema:** refunding a remainder at the rate it was charged at needs net amount and tax rate stored per
+  payment. These are new columns, so consumers need a migration, and 0.6.0 is a behaviour-changing release.
+- **Repricing** (asked by identity): Mollie charges a subscription on its own, so the library is not called
+  before each recurring payment. The resolver runs at the first payment, at upgrade and at downgrade, and
+  through `RepriceAsync(owner)`. The consumer calls `RepriceAsync` when the tax treatment changes; it
+  re-resolves every active subscription of that owner and updates the Mollie amount from the next charge.
+- **Currency:** a resolved currency other than the configured `CashierMollieOptions.Currency` is rejected,
+  never passed through.
+
+Estimate, 2026-11-14: library about 9 person-days, identity about 16 (identity's own figure). That covers
+the seam, variant A, upgrade with credit and refund, downgrade, a rounding matrix and one run against Mollie
+test mode. Outside it: invoices (sevdesk), module gating in the products, the `product_access` contract
+change for module licences, and tax-advisor sign-off on OSS and reverse charge. Unmeasured until test mode:
+how Mollie books an amount update in the middle of a cycle. Needed for that run: a test key in a 1Password
+environment, and the webhook path released past the whitelist.
+
 ---
 
 ## Schema
