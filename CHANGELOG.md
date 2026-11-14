@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.1] - 2026-11-14
+
+Prerelease so that a consumer can integrate the 0.6.0 billing before it is final. 0.6.0 itself
+follows a run against Mollie's test mode, once it is measured how Mollie books an amount change in
+the middle of a cycle.
+
 ### Breaking -- MollieNative now charges recurring money
 Up to 0.5.0 the default engine registered nothing at Mollie: after the mandate payment no further
 charge was ever made. From 0.6.0 a subscription with a price is registered at Mollie and charged
