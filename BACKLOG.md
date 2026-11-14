@@ -14,7 +14,13 @@ not by priority.
 
 ### The default engine registers no subscription with Mollie, so nothing recurring is charged
 
-**The highest-priority item in this file.** Measured 2026-10-26:
+**Built on `feat/billing-0.6` (2026-11-14), not yet released:** variant A below, as planned in
+"Billing plan for 0.6.0". A priced subscription is registered at Mollie after its first payment
+and charged every 30 days; unpriced ones (mandate-only, pre-0.6.0) stay local. Still unmeasured
+until the test-mode run: Mollie's booking of a mid-cycle amount change. The text below is the
+state it replaces and stays as the record of why.
+
+Measured 2026-10-26:
 
 - `MollieSubscriptionId` has **no assignment** anywhere in the library. Known-positive for the same
   search: `MollieCustomerId` has six, in four files.
@@ -69,6 +75,9 @@ billing is switched on anywhere, not when a date passes.
 
 ### Proration is not implemented, and says so loudly
 
+**0.6.0 (unreleased):** the credit exists as `UpgradeAsync` on MollieNative. The `Prorate` flags
+still throw and now point there; removing them stays a next-major question.
+
 `WithProration()` and a swap with `SwapOptions { Prorate = true }` throw `NotSupportedException`.
 Until `eb8cd7f` the flag was accepted and ignored — five write sites, zero read sites — while its
 XML documentation promised a credit for unused time that nothing computed. Failing loudly is the
@@ -107,6 +116,10 @@ instead of sweeping clean.
 version carries the correction.
 
 ### A plan swap changes the label, not the amount
+
+**0.6.0 (unreleased), MollieNative:** a swap of a priced subscription sends the new gross and
+description to Mollie and moves the plan at the next paid charge (a downgrade at cycle end).
+Unpriced subscriptions and the Managed engine are as described below.
 
 `SwapPlanAsync` on the MollieNative engine assigns the new plan name locally and sends an **empty**
 update to Mollie — the client guards on `amount.HasValue` and `description != null`, both of which
@@ -408,10 +421,17 @@ into the engine -- a parameter on a **public constructor**, which is not additiv
 
 ### Plan price resolution
 
-There is no plan→price mapping. Consumers price items themselves; the first order item is created
+**0.6.0 (unreleased):** `IPlanPriceResolver<TKey>`, configurable by default
+(`CashierMollie:Plans`), used by MollieNative. The Managed engine still prices nothing itself.
+
+Before: there was no plan→price mapping. Consumers price items themselves; the first order item is created
 with `UnitPrice = 0m` by design, with a comment saying so. Proration depends on this.
 
-### Billing plan for 0.6.0: agreed 2026-11-14, not built until the prices are confirmed
+### Billing plan for 0.6.0: agreed 2026-11-14, built 2026-11-14 on `feat/billing-0.6`
+
+Robin confirmed the prices via root ("passt so, können wir später noch ändern"), so it was built,
+with the prices configurable rather than in code. Open after merge: a release (root's call), the
+consumer migration, and the test-mode run (test key and webhook release, both with Robin).
 
 Robin's decision, relayed by root on 2026-11-14: three tiers (single module from a suite, suite, all-inclusive),
 streamernet sold separately, monthly only, a 7-day trial per account, upgrades immediate with credit. This

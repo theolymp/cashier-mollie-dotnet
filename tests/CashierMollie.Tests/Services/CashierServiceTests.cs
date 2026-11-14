@@ -33,7 +33,7 @@ public class CashierServiceTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         _sut = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
         _owner = new TestBillable("user-1", "cst_test", "mdt_test");
     }

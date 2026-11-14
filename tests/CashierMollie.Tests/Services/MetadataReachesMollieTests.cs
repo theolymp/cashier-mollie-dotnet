@@ -129,7 +129,7 @@ public class MetadataReachesMollieTests : IDisposable
         var engine = new MollieBillingEngine<string>(_db, mollie, dispatcher,
             Options.Create(options),
             new CouponService<string>(_db, Substitute.For<ICouponRepository>(), dispatcher),
-            NullLogger<MollieBillingEngine<string>>.Instance);
+            new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
 
         // No mandate on this owner, so the first-payment flow runs.
         var owner = new TestBillable("u1", "cst_test");

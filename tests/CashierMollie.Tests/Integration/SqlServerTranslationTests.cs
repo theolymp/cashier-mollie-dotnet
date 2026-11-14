@@ -99,10 +99,10 @@ public class SqlServerTranslationTests
 
         var columns = await db.DecimalColumnsAsync();
 
-        // 13 mapped decimal properties across the five models that have them. Three further
-        // decimal members (OrderItem.Total, TaxAmount, TotalWithTax) are computed and not mapped,
-        // so a count of 16 here would mean EF had started persisting them.
-        Assert.Equal(13, columns.Count);
+        // 19 mapped decimal properties across the six models that have them (13 until 0.6.0).
+        // Three further decimal members (OrderItem.Total, TaxAmount, TotalWithTax) are computed
+        // and not mapped, so a count of 22 here would mean EF had started persisting them.
+        Assert.Equal(19, columns.Count);
         foreach (var (table, column, dataType, precision, scale) in columns)
         {
             Assert.Equal("decimal", dataType);

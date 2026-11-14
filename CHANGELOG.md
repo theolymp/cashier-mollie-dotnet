@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Breaking -- MollieNative now charges recurring money
+Up to 0.5.0 the default engine registered nothing at Mollie: after the mandate payment no further
+charge was ever made. From 0.6.0 a subscription with a price is registered at Mollie and charged
+every `CycleDays` days (default 30). What reaches you:
+
+- **Prices are required.** Creating a subscription resolves its plan through the new
+  `IPlanPriceResolver<TKey>`. The default reads `CashierMollie:Plans:{plan}` (`Amount` net,
+  `Description`, optional `TaxRatePercent`, else `DefaultTaxRatePercent`) and throws for a plan it
+  does not find, rather than charging a guess. Register your own resolver to price per owner.
+- **The first payment is the first cycle.** Without a mandate the checkout takes the full gross
+  price instead of `PaymentMethodUpdateAmount`; on a trial it still takes only that check, and
+  Mollie's first charge falls on the trial's end. With a mandate the first cycle is charged from it
+  and the subscription is active at once.
+- **A swap is a downgrade at the end of the paid cycle.** The new price goes to Mollie at once, and
+  `Plan` follows when the next charge is paid (`NextPlan` until then). Before, a swap renamed the
+  plan and Mollie received an empty update.
+- **Cancel** ends a priced subscription with its paid cycle instead of `GracePeriodDays`, and stops
+  Mollie at once; resume registers it again.
+- Mandate-only subscriptions and those created before 0.6.0 carry no price and behave as before.
+- `IMollieClientService.CreateSubscriptionAsync` takes a `startDate`; the engine and webhook
+  service constructors take the new dependencies (`IPlanPriceResolver<TKey>`, `IRefundService<TKey>`;
+  options and a logger for the webhook). Both are DI-registered, so `AddCashierMollie` callers need
+  no change.
+
+### Added -- upgrades, repricing, money arithmetic
+- **`ICashierService.UpgradeAsync`** replaces subscriptions with a new one now. The unused value of
+  each (`net x remaining whole days / CycleDays`, current day used, to the cent half away from zero)
+  is credited net against the new price, the rest is charged from the mandate, and a surplus is
+  refunded onto the payments behind it instead of being held. `UpgradeOptions.OffsetCredit = false`
+  refunds everything and charges the full price, for a changed tax treatment. The result, also
+  dispatched as `SubscriptionUpgraded<TKey>`, carries every line an invoice needs.
+- **`ICashierService.RepriceAsync(ownerId)`** re-resolves an owner's subscriptions and sends a
+  changed amount to Mollie from the next charge, because the resolver is not called before each
+  recurring charge.
+- **Payments Mollie makes on its own are recorded.** Before, the webhook ignored any payment it did
+  not create; none arrived, since nothing was registered.
+- **`Money`**: `Gross`, `RemainingWholeDays`, `Prorate`, `RoundCents` -- the rules for the invoice.
+- A resolved currency other than `Currency` is rejected.
+- Not measured yet: how Mollie books an amount change in the middle of a cycle. A cycle payment at
+  an unexpected amount is recorded and logged as a warning.
+- **After the charge nothing is thrown.** Once an upgrade has charged the customer, every local
+  record is saved before the next call to Mollie; a failing registration, cancellation or refund
+  is logged and listed in `UpgradeResult.Incomplete`. Registration is retried by the webhook of the
+  payment, or by `RepriceAsync`, which also registers an active paid subscription missing at
+  Mollie. Two concurrent webhooks register one Mollie subscription, not two (a claim on the
+  concurrency token). A cancelled subscription keeps its Mollie id, so a payment under way still
+  finds it, and a payment Mollie creates after the end date makes the webhook cancel again.
+- Subscription names stay unique per owner over every row, ended ones included: an upgrade needs a
+  name the owner has never used, and is refused before the charge otherwise.
+
+### Schema -- a migration is needed
+- `cashier_subscriptions`: `PriceNet`, `TaxRatePercent`, `CycleValueNet` (`decimal(18,4)`, null),
+  `Description` (`varchar(255)`, null), `ReplacedBySubscriptionId` (`bigint`, null).
+- `cashier_payments`: `AmountNet`, `TaxRatePercent` (`decimal(18,4)`, null), `CreditNet`
+  (`decimal(18,4)`, not null, default 0).
+- Nothing existing is rewritten. Generate it with `dotnet ef migrations add` against your context.
+
 ### Added -- target frameworks
 - **net11.0 next to net10.0.** The package ships both builds; net10.0 is not dropped, because
   that would force every consumer onto net11.0 at once, and both are supported until 2028-11-14.

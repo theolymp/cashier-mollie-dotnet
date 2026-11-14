@@ -22,7 +22,7 @@ public class MollieBillingEngineTests : IDisposable
     public MollieBillingEngineTests()
     {
         _db = TestDbContextFactory.Create();
-        _mollieClient = Substitute.For<IMollieClientService>();
+        _mollieClient = Substitute.For<IMollieClientService>().WithRecurringDefaults();
         _dispatcher = Substitute.For<ICashierEventDispatcher>();
         var options = Options.Create(new CashierMollieOptions
         {
@@ -31,7 +31,7 @@ public class MollieBillingEngineTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        _engine = new MollieBillingEngine<string>(_db, _mollieClient, _dispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _dispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        _engine = new MollieBillingEngine<string>(_db, _mollieClient, _dispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _dispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
     }
 
     [Fact]
@@ -300,13 +300,36 @@ public class MollieBillingEngineTests : IDisposable
     }
 
     [Fact]
-    // Renamed from SwapPlanAsync_UpdatesMollie_WhenSubscriptionIdExists. That name claimed the
-    // swap updates the Mollie subscription; what it actually certified was an update carrying NO
-    // amount, currency or description — an empty round-trip. A green test under an intentional
-    // name makes a defect read as a decision, so the name now says what happens and the
-    // assertion pins the nulls explicitly. Whoever adds plan-to-price resolution will see this
-    // fail, which is the point.
-    public async Task SwapPlanAsync_SendsEmptyUpdate_SoMollieKeepsChargingTheOldAmount()
+    // Until 0.6.0 this test was SwapPlanAsync_SendsEmptyUpdate_SoMollieKeepsChargingTheOldAmount:
+    // it pinned an update carrying no amount, currency or description, and said that whoever
+    // added plan-to-price resolution would see it fail. That happened. A priced subscription now
+    // sends the new gross and statement text, and the plan itself follows at the next charge.
+    public async Task SwapPlanAsync_PricedSubscription_SendsTheNewGrossAndDefersThePlan()
+    {
+        var sub = new Subscription<string>
+        {
+            OwnerId = "u1", Name = "default", Plan = "pro",
+            MollieCustomerId = "cst_test", MollieSubscriptionId = "sub_test",
+            Status = SubscriptionStatus.Active,
+            PriceNet = 24.99m, TaxRatePercent = 19m, Description = "Plan pro",
+        };
+        _db.Subscriptions.Add(sub);
+        await _db.SaveChangesAsync();
+
+        await _engine.SwapPlanAsync(sub, "team");
+
+        // FakePlanPriceResolver's default: 10.00 net at 19 % is 11.90 gross.
+        await _mollieClient.Received(1).UpdateSubscriptionAsync(
+            "cst_test", "sub_test", 11.90m, "EUR", "Plan team", Arg.Any<CancellationToken>());
+        Assert.Equal("pro", sub.Plan);
+        Assert.Equal("team", sub.NextPlan);
+        Assert.Equal(10m, sub.PriceNet);
+    }
+
+    [Fact]
+    // A subscription from before 0.6.0 has no price and nothing at Mollie that charges it: the
+    // swap stays what it was, a label change, and sends nothing.
+    public async Task SwapPlanAsync_UnpricedSubscription_ChangesTheLabelOnly()
     {
         var sub = new Subscription<string>
         {
@@ -319,9 +342,9 @@ public class MollieBillingEngineTests : IDisposable
 
         await _engine.SwapPlanAsync(sub, "team");
 
-        // Explicitly null: no amount, no currency, no description reach Mollie.
-        await _mollieClient.Received(1).UpdateSubscriptionAsync(
-            "cst_test", "sub_test", null, null, null, Arg.Any<CancellationToken>());
+        Assert.Equal("team", sub.Plan);
+        await _mollieClient.DidNotReceiveWithAnyArgs().UpdateSubscriptionAsync(
+            default!, default!, default, default, default, default);
     }
 
     [Fact]

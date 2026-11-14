@@ -27,7 +27,7 @@ public class EndToEndTests : IDisposable
     public EndToEndTests()
     {
         _db = TestDbContextFactory.Create();
-        _mollieClient = Substitute.For<IMollieClientService>();
+        _mollieClient = Substitute.For<IMollieClientService>().WithRecurringDefaults();
         _eventDispatcher = Substitute.For<ICashierEventDispatcher>();
         _options = Options.Create(new CashierMollieOptions
         {
@@ -48,7 +48,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange: owner with existing mandate (direct activation, no checkout)
         var owner = new TestBillable("e2e-user-1", "cst_e2e_1", "mdt_e2e_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Step 1: Create subscription -> should be Active immediately
@@ -61,8 +61,9 @@ public class EndToEndTests : IDisposable
         Assert.True(await cashier.IsSubscribedAsync(owner, "default"));
 
         // Step 2: Swap plan -> verify new plan
+        // Registered at Mollie, so the swap is the next charge: the plan follows when it is paid.
         var swapped = await cashier.SwapAsync(owner, "default", "team-monthly");
-        Assert.Equal("team-monthly", swapped.Plan);
+        Assert.Equal("team-monthly", swapped.NextPlan);
 
         // Verify SubscriptionPlanSwapped event was dispatched
         await _eventDispatcher.Received(1).DispatchAsync(
@@ -219,7 +220,7 @@ public class EndToEndTests : IDisposable
         _mollieClient.GetPaymentAsync("tr_webhook_test_1", Arg.Any<CancellationToken>())
             .Returns(molliePaymentResponse);
 
-        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher, Microsoft.Extensions.Options.Options.Create(new CashierMollieOptions()), NullLogger<WebhookService<string>>.Instance);
 
         // Act
         await webhookService.HandlePaymentAsync("tr_webhook_test_1");
@@ -392,7 +393,7 @@ public class EndToEndTests : IDisposable
 
         // Create an active subscription for the owner
         var owner = new TestBillable("e2e-coupon-1", "cst_coupon_1", "mdt_coupon_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         await cashier.NewSubscription(owner, "default", "pro-monthly")
@@ -437,7 +438,7 @@ public class EndToEndTests : IDisposable
     {
         // Arrange
         var owner = new TestBillable("e2e-trial-1", "cst_trial_1", "mdt_trial_1");
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, _options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         var cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, _options, NullLogger<CashierService<string>>.Instance);
 
         // Act: create subscription with 14-day trial

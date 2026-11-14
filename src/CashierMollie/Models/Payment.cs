@@ -44,6 +44,21 @@ public class Payment<TKey> : IHasTimestamps where TKey : IEquatable<TKey>
     /// <summary>Total amount charged back from this payment.</summary>
     public decimal AmountChargedBack { get; set; }
 
+    /// <summary>
+    /// Net part of <see cref="Amount"/>, for payments of a priced subscription cycle. Null for
+    /// payments that are not a cycle, such as a mandate check or a one-off charge.
+    /// </summary>
+    public decimal? AmountNet { get; set; }
+
+    /// <summary>Tax rate in percent the payment was charged at; null where <see cref="AmountNet"/> is.</summary>
+    public decimal? TaxRatePercent { get; set; }
+
+    /// <summary>
+    /// Net credit from replaced subscriptions offset against this cycle by an upgrade. The cycle
+    /// was worth <see cref="AmountNet"/> plus this; an invoice shows it as its own line.
+    /// </summary>
+    public decimal CreditNet { get; set; }
+
     /// <summary>The mandate ID acquired from this payment (set after successful first payment).</summary>
     [MaxLength(255)]
     public string? MollieMandateId { get; set; }

@@ -42,16 +42,59 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// <param name="owner">The billable entity.</param>
     /// <param name="name">The subscription name.</param>
     /// <param name="newPlan">
-    /// The new plan identifier. NOTE: this changes the plan LABEL, not the amount charged —
-    /// nothing in this library resolves a price from a plan. MollieNative sends an empty update
-    /// to Mollie and the old amount keeps being collected; Managed advances the label at the next
-    /// cycle and carries the previous item's UnitPrice forward. Set the new price yourself.
+    /// The new plan identifier. MollieNative, for a subscription with a price: the new price is
+    /// resolved and sent to Mollie at once, so it applies from the next charge, and the plan
+    /// itself changes when that charge is paid (<c>NextPlan</c> until then). Use it for a
+    /// downgrade, which takes effect at the end of the paid cycle without a refund; an immediate
+    /// change with credit is <see cref="UpgradeAsync"/>. For a subscription without a price
+    /// (created before 0.6.0) it still changes only the label. Managed advances the label at the
+    /// next cycle and carries the previous item's UnitPrice forward.
     /// </param>
     /// <param name="options">Optional swap configuration (e.g. proration).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The updated subscription.</returns>
     Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan,
         SwapOptions? options = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces subscriptions with a new one immediately, crediting their unused value
+    /// (MollieNative engine only).
+    /// </summary>
+    /// <remarks>
+    /// <para>For each replaced subscription the unused value is <c>net x remaining whole days /
+    /// CycleDays</c>, rounded to the cent, with the current day counted as used. Its net is the
+    /// last paid cycle: the payment's <c>AmountNet</c> plus any <c>CreditNet</c> it carried.</para>
+    /// <para>With <see cref="UpgradeOptions.OffsetCredit"/> the summed value is offset, net,
+    /// against the new plan's net price; the remainder is taxed once and charged from the
+    /// owner's mandate. A credit larger than the price is not held: the surplus is refunded onto
+    /// the replaced subscriptions' last payments, at the tax rate each was charged at.</para>
+    /// <para>The replaced subscriptions end now, at Mollie as well. The new subscription is
+    /// active at once, starts a fresh cycle today, and Mollie charges its full price from
+    /// <c>CycleDays</c> days later.</para>
+    /// <para>Which subscriptions an upgrade replaces is the caller's decision: this library knows
+    /// plan ids, not what a plan contains.</para>
+    /// </remarks>
+    /// <param name="owner">The billable entity; it needs a mandate.</param>
+    /// <param name="name">Name of the new subscription. It must not belong to another live
+    /// subscription of the owner, unless that one is among <paramref name="replaces"/>.</param>
+    /// <param name="newPlan">Plan id of the new subscription.</param>
+    /// <param name="replaces">Active, priced subscriptions of the same owner to end. At least one.</param>
+    /// <param name="options">Upgrade options; null uses the defaults.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<UpgradeResult<TKey>> UpgradeAsync(IBillable<TKey> owner, string name, string newPlan,
+        IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Re-resolves the price of every active subscription of the owner that Mollie charges, and
+    /// sends a changed amount to Mollie, effective from the next charge (MollieNative engine only).
+    /// Call it when anything the price depends on has changed, such as the owner's tax treatment.
+    /// It also registers an active, paid subscription that is missing at Mollie because its
+    /// registration failed after the payment, which makes it the repair for an upgrade whose
+    /// <c>UpgradeResult.Incomplete</c> lists a registration.
+    /// </summary>
+    /// <returns>The number of subscriptions changed or registered at Mollie.</returns>
+    Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
     /// <summary>
     /// Checks whether the owner has an active subscription with the given name.

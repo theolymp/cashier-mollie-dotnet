@@ -10,8 +10,8 @@ internal static class ProrationSupport
         "Proration is not implemented. Up to and including 0.4.0 this flag was accepted and never " +
         "read by either billing engine, so a caller received no credit and no error. It now fails " +
         "instead of silently doing nothing, because a money flag that is quietly inert is " +
-        "indistinguishable from a working one. Until proration is built, do not set it and compute " +
-        "any credit yourself.";
+        "indistinguishable from a working one. The flag stays refused: an immediate plan change with " +
+        "credit for the unused days is ICashierService.UpgradeAsync (MollieNative engine, since 0.6.0).";
 
     /// <summary>
     /// Fails if proration was requested. Called at every entry point that carries the flag,

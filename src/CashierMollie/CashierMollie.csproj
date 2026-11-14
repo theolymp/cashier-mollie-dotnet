@@ -17,7 +17,7 @@
     <PackageId>CashierMollie</PackageId>
     <!-- The version a tag would publish. Nothing is published by a push: the publish job is
          gated on refs/tags/v*, so this sits here until a tag is cut. -->
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <!-- The rights holder, named the same way in LICENSE, in the packed README and in the
          assembly: Authors is what nuget.org shows, Copyright is what the nuspec carries (it
          had no copyright element at all before 2026-11-07, so this field was empty rather

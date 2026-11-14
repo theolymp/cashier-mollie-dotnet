@@ -61,6 +61,30 @@ public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKe
     /// <summary>Subscription quantity (for quantity-based billing).</summary>
     public int? Quantity { get; set; }
 
+    /// <summary>
+    /// Net price per cycle that Mollie charges from the next payment on, as resolved by
+    /// <see cref="Interfaces.IPlanPriceResolver{TKey}"/>. Null for subscriptions created before
+    /// 0.6.0 or without a price (mandate-only); the MollieNative engine registers nothing at
+    /// Mollie for those, exactly as before.
+    /// </summary>
+    public decimal? PriceNet { get; set; }
+
+    /// <summary>Tax rate in percent belonging to <see cref="PriceNet"/>.</summary>
+    public decimal? TaxRatePercent { get; set; }
+
+    /// <summary>Statement text sent to Mollie with the subscription.</summary>
+    [MaxLength(255)]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Net value of the paid cycle that began at <see cref="CycleStartedAt"/>: what an upgrade
+    /// credits pro rata. Null while no cycle has been paid, for example during a trial.
+    /// </summary>
+    public decimal? CycleValueNet { get; set; }
+
+    /// <summary>The subscription that replaced this one in an upgrade, or null.</summary>
+    public long? ReplacedBySubscriptionId { get; set; }
+
     /// <summary>Optimistic concurrency token, incremented on each update.</summary>
     [ConcurrencyCheck]
     public uint RowVersion { get; set; }

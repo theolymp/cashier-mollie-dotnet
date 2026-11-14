@@ -71,7 +71,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 ## Features
 
 - **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions with a fluent API
-- **Dual billing engine** -- `MollieNative` (default) or a self-managed billing cycle (`Managed`) with background processing. ⚠️ **`MollieNative` does not currently register a recurring subscription with Mollie and charges nothing after the mandate payment** -- see [Billing Engines](#billing-engines)
+- **Dual billing engine** -- `MollieNative` (default), where Mollie charges a priced subscription every `CycleDays` days, with upgrades credited pro rata and downgrades at the end of the paid cycle; or a self-managed billing cycle (`Managed`) with background processing -- see [Billing Engines](#billing-engines)
 - **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
@@ -85,7 +85,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **Chargeback detection** -- automatic tracking and events for chargebacks
 - **Invoice interface** -- `IInvoiceGenerator<TKey>` is declared and registered, but **nothing in this library calls it**; implementing it currently has no effect
 - **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
-- **Event system** -- 23 domain events via pluggable `ICashierEventDispatcher`
+- **Event system** -- 24 domain events via pluggable `ICashierEventDispatcher`
 - **EF Core integration** -- 7 entities across 7 tables with a single `ModelBuilder` extension
 - **Generic owner key** -- supports `string`, `int`, `Guid`, or any `IEquatable<TKey>` type for your user model
 - **Dependency injection** -- first-class ASP.NET Core DI support with a single `AddCashierMollie<TKey>()` call
@@ -355,18 +355,52 @@ After resuming, the subscription is active again and `OnGracePeriodAsync()` retu
 
 ### Swapping plans
 
-> ⚠️ **A swap changes the plan label, not the amount charged.** There is no plan-to-price
-> resolution in this library, so neither engine sends a new amount: `MollieNative` renames locally
-> and sends an empty update to Mollie, which keeps charging the old amount indefinitely; `Managed`
-> advances the label at the next cycle and copies the previous item's `UnitPrice`. Set the new
-> price yourself after swapping, or the customer keeps paying the old one. Proration throws
-> outright -- see [Proration](#proration).
-
+> **`MollieNative`:** the new plan's price is resolved and sent to Mollie at once. Mollie charges
+> at the start of a cycle, so the new amount is the next charge: a swap takes effect at the end of
+> the paid cycle, without a refund, and `Plan` becomes the new plan when that charge is paid
+> (`NextPlan` until then). That is a downgrade. An immediate change with credit is an
+> [upgrade](#upgrading-with-credit). A subscription created before 0.6.0 has no price and a swap
+> still changes only its label.
+>
+> **`Managed`** advances the label at the next cycle and copies the previous item's `UnitPrice`:
+> set the new price on the pending order item yourself. `SwapOptions.Prorate` throws on both.
 
 ```csharp
 // Swap to a different plan
 var updated = await _cashier.SwapAsync(user, "default", "team-monthly");
 ```
+
+### Upgrading with credit
+
+`UpgradeAsync` replaces one or more subscriptions with a new one **now** (`MollieNative` only):
+
+```csharp
+var result = await _cashier.UpgradeAsync(user, "team", "team", replaces: [proSubscription]);
+// result.Replaced          one line per replaced subscription: remaining days, value, refund
+// result.CreditAppliedNet  the credit, a line of its own on the invoice
+// result.ChargedNet / ChargedGross / Payment   what was charged now
+```
+
+- **Value of what is replaced:** `net x remaining whole days / CycleDays`, rounded to the cent half
+  away from zero, the current day counting as used. `net` is what the running cycle was worth.
+- **Offset:** the summed value is credited, net, against the new plan's net price; the rest is
+  taxed once and charged from the owner's mandate. A credit **larger** than the price is not held:
+  the surplus is refunded onto the payments behind the replaced subscriptions, at the tax rate each
+  was charged at.
+- `new UpgradeOptions { OffsetCredit = false }` refunds the whole value and charges the full price.
+  Use it when the owner's tax treatment changed since the old payments, so nothing is netted across
+  two treatments.
+- The replaced subscriptions end now, at Mollie as well. The new one is active at once, starts a
+  fresh cycle today, and Mollie charges its full price from one cycle later.
+- **Which** subscriptions an upgrade replaces is yours to decide: the library knows plan ids, not
+  what a plan contains. The charge is the first call to Mollie, so a refused mandate leaves
+  everything as it was.
+- **Names are unique per owner over every row**, ended ones included: give the new subscription a
+  name the owner has never used (for example the unit plus a date). Checked before the charge.
+- **After the charge nothing is thrown.** A Mollie step that fails afterwards is logged and listed
+  in `result.Incomplete`; the registration is retried by the payment's webhook or by
+  `RepriceAsync`.
+- `SubscriptionUpgraded<TKey>` carries the same result for an invoice handler.
 
 ### Trial periods
 
@@ -442,24 +476,47 @@ await _cashier.DecrementQuantityAsync(user, "default", 2);
 
 CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` strategy pattern:
 
-**MollieNative (default)** -- named for Mollie's Subscription API.
+**MollieNative (default)** -- Mollie's Subscription API owns the cycle.
 
-> ⚠️ **It does not currently create a Mollie subscription, so nothing recurring is charged.**
-> Measured 2026-10-26: `MollieSubscriptionId` has no assignment anywhere in this library, and
-> `IMollieClientService.CreateSubscriptionAsync` -- the only method that would register a recurring
-> subscription with Mollie -- has no caller. The cancel-at-Mollie and update-at-Mollie branches are
-> guarded on that field being set and are therefore unreachable.
->
-> What this engine does today: creates the local subscription row, takes a first payment of
-> `PaymentMethodUpdateAmount` (default **0.01**) to acquire a mandate, and activates the
-> subscription when the webhook reports that payment as paid. After that, no further charge is
-> made by this library or by Mollie.
->
-> The sentence here previously read "delegates billing to Mollie's Subscription API. Mollie manages
-> the billing cycle and sends webhooks for each payment." That described an intent, not the code.
-> **If you need recurring money to move, use `Managed`** -- or create the Mollie subscription
-> yourself via `IMollieClientService`, which is public and registered. This is the top item in
-> [BACKLOG.md](BACKLOG.md).
+- A subscription gets its price from `IPlanPriceResolver<TKey>` when it is created: net amount,
+  currency, tax rate and statement text. The default reads `CashierMollie:Plans` (below); register
+  your own resolver to price per owner, for example to apply a VAT id. This library contains no
+  tax logic. Mollie charges `Money.Gross(net, rate)`: `net x (1 + rate / 100)`, rounded once to the
+  cent, half away from zero. Use the same function on your invoice.
+- **Without a mandate**, the first cycle is paid through a Mollie checkout. When the webhook reports
+  it paid, the subscription becomes active and is registered at Mollie, whose own first charge is
+  one cycle later.
+- **With a mandate**, the subscription is active at once, the first cycle is charged from the
+  mandate, and Mollie takes over one cycle later.
+- **On a trial** nothing is charged up front (without a mandate only the
+  `PaymentMethodUpdateAmount` check, default 0.01); Mollie's first charge falls on the trial's end.
+- A cycle is `CycleDays` days (default 30), not a calendar month. Every payment Mollie makes
+  arrives through the webhook and is recorded with its net amount and tax rate.
+- **Cancel** ends a priced subscription with its paid cycle and stops Mollie at once; **resume**
+  registers it again from that date.
+- **`RepriceAsync(ownerId)`** re-resolves every active subscription of an owner and sends a changed
+  amount to Mollie, effective from the next charge. Call it when the owner's tax treatment changes:
+  the resolver is not consulted before each recurring charge, because Mollie charges on its own.
+- A resolved currency other than `Currency` is rejected, never passed through.
+- **Unpriced subscriptions stay local.** Mandate-only subscriptions and subscriptions created before
+  0.6.0 have no price, and nothing is registered at Mollie for them. Up to 0.5.0 that was true of
+  every subscription on this engine: it registered nothing, and nothing recurring was charged.
+- **Not measured yet:** how Mollie books an amount change in the middle of a cycle. A cycle payment
+  that arrives at a different amount than the stored price is recorded and logged as a warning.
+
+```json
+{
+  "CashierMollie": {
+    "WebhookUrl": "https://example.com/cashier/webhook",
+    "CycleDays": 30,
+    "DefaultTaxRatePercent": 19,
+    "Plans": {
+      "pro":  { "Amount": "9.99",  "Description": "Pro, monthly" },
+      "team": { "Amount": "24.99", "Description": "Team, monthly", "TaxRatePercent": 19 }
+    }
+  }
+}
+```
 
 **Managed** -- runs its own billing cycle locally. Schedules `OrderItem` records with `ProcessAt` dates and creates on-demand recurring payments via Mollie mandates. Requires the `CashierBackgroundService` (registered automatically).
 
@@ -771,6 +828,7 @@ it in your `ICashierEventDispatcher`.
 | `SubscriptionCancelled<TKey>` | A subscription was cancelled |
 | `SubscriptionResumed<TKey>` | A cancelled subscription was resumed |
 | `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed |
+| `SubscriptionUpgraded<TKey>` | `UpgradeAsync` replaced subscriptions with a new one; carries the credit, charge and refunds for the invoice |
 | `SubscriptionQuantityUpdated<TKey>` | Subscription quantity was updated |
 | `OrderPaymentPaid<TKey>` | A payment was successfully processed |
 | `OrderPaymentFailed<TKey>` | A payment attempt failed -- see [who retries](#who-retries-a-failed-payment-read-before-handling-orderpaymentfailed) |
@@ -912,7 +970,7 @@ and will not tell you.
 | `Id` | `bigint` PK | Auto-increment ID |
 | `OwnerId` | `TKey` | Foreign key to your user model |
 | `Name` | `varchar(255)` | The subscription **slot** for this owner, not a display name -- lets one owner hold several subscriptions at once, and is what `Subscribed(name)` matches. Convention: your **product** (e.g. `"acme-app"`). Defaults to `"default"`. Matched literally, so changing it orphans the subscription. |
-| `Plan` | `varchar(255)` | The plan **label** (e.g. `"pro-monthly"`) -- what `Swap()` changes. ⚠️ **It does not change what is charged**: nothing resolves a price from a plan, so a swap renames and keeps collecting the old amount. Convention: your **tier**. |
+| `Plan` | `varchar(255)` | The plan id (e.g. `"pro-monthly"`). On `MollieNative` its price comes from `IPlanPriceResolver<TKey>`; on `Managed` it is a label and the order item carries the price |
 | `MollieSubscriptionId` | `varchar(255)?` | Mollie subscription ID |
 | `MollieCustomerId` | `varchar(255)?` | Mollie customer ID |
 | `Status` | `varchar(50)` | `active`, `cancelled`, `past_due`, `pending`, `paused` |
@@ -920,6 +978,11 @@ and will not tell you.
 | `TrialEndsAt` | `datetimeoffset?` | End of trial period |
 | `EndsAt` | `datetimeoffset?` | End of subscription / grace period |
 | `CycleStartedAt` | `datetimeoffset?` | Start of current billing cycle |
+| `PriceNet` | `decimal(18,4)?` | Net price Mollie charges from the next payment on (0.6.0). Null: unpriced, nothing at Mollie |
+| `TaxRatePercent` | `decimal(18,4)?` | Tax rate belonging to `PriceNet` (0.6.0) |
+| `Description` | `varchar(255)?` | Statement text sent to Mollie (0.6.0) |
+| `CycleValueNet` | `decimal(18,4)?` | Net value of the paid current cycle; what an upgrade credits pro rata (0.6.0) |
+| `ReplacedBySubscriptionId` | `bigint?` | The subscription that replaced this one in an upgrade (0.6.0) |
 | `CreatedAt` | `datetimeoffset` | Record creation timestamp |
 | `UpdatedAt` | `datetimeoffset` | Last update timestamp |
 
@@ -934,6 +997,9 @@ and will not tell you.
 | `Status` | `varchar(50)` | Mollie payment status |
 | `Currency` | `varchar(3)` | ISO 4217 currency code |
 | `Amount` | `decimal(18,4)` | Payment amount |
+| `AmountNet` | `decimal(18,4)?` | Net part of `Amount` for a priced cycle payment; null for a mandate check or one-off charge (0.6.0) |
+| `TaxRatePercent` | `decimal(18,4)?` | Tax rate the payment was charged at (0.6.0) |
+| `CreditNet` | `decimal(18,4)` | Net credit an upgrade offset against this cycle, an invoice line of its own (0.6.0) |
 | `MollieMandateId` | `varchar(255)?` | Associated mandate ID |
 | `Method` | `varchar(50)?` | Payment method used |
 | `PaidAt` | `datetimeoffset?` | When payment was confirmed |
@@ -1021,6 +1087,9 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     Task CancelImmediatelyAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task ResumeAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
     Task<Subscription<TKey>> SwapAsync(IBillable<TKey> owner, string name, string newPlan, ...);
+    Task<UpgradeResult<TKey>> UpgradeAsync(IBillable<TKey> owner, string name, string newPlan,
+        IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null, ...);
+    Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
     // Status checks
     Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, ...);
@@ -1061,7 +1130,7 @@ public interface ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
     ISubscriptionBuilder<TKey> WithCoupon(string coupon);   // validated + redeemed; reduces the
                                                            // charge on Managed only
     ISubscriptionBuilder<TKey> TrialDays(int days);
-    ISubscriptionBuilder<TKey> WithProration();             // THROWS: not implemented
+    ISubscriptionBuilder<TKey> WithProration();             // THROWS: use UpgradeAsync
     ISubscriptionBuilder<TKey> WithMandateOnly();
     ISubscriptionBuilder<TKey> WithMetadata(Dictionary<string, string> metadata);  // sent to Mollie
                                                            // with the FIRST payment
@@ -1093,7 +1162,9 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `WebhookPath` | `string` | `"/cashier/webhook"` | **Local path the middleware matches.** Must correspond to the path component of `WebhookUrl`. |
 | `WebhookUrl` | `string` | `""` (falls back to `WebhookPath`) | **Absolute URL sent to Mollie** for payment callbacks, e.g. `"https://yourdomain.com/cashier/webhook"`. Mollie requires an absolute HTTPS URL -- leaving this empty sends the relative `WebhookPath` instead, which fails once real payments start. |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
-| `GracePeriodDays` | `int` | `30` | Number of days a cancelled subscription remains accessible |
+| `GracePeriodDays` | `int` | `30` | Number of days a cancelled **unpriced** subscription remains accessible. A priced one ends with its paid cycle |
+| `CycleDays` | `int` | `30` | Length of a billing cycle in days, sent to Mollie as the interval `"{CycleDays} days"` (0.6.0) |
+| `DefaultTaxRatePercent` | `decimal` | `0` | Tax rate the default `ConfigPlanPriceResolver` uses for a plan under `CashierMollie:Plans` without its own `TaxRatePercent` (0.6.0) |
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
 | `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | Format for `Order.Number`, `{0}` being the order ID. Read since 0.5.0, when the `Managed` engine began writing order headers. A value that is not a usable format string, or one longer than the 50-character column, leaves the number null and logs it rather than failing a billing run. Set it empty to omit order numbers. |
@@ -1117,10 +1188,10 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [x] **Chargeback handling** -- tracking and events for chargebacks
 - [ ] **Invoice interface** -- `IInvoiceGenerator<TKey>` exists as a seam, but no code path invokes it, so an implementation never runs
 - [x] **Order model** -- orders and order items, with the caveat that an order *header* is only created by one-off charges; the Managed engine schedules order items with `OrderId` left null, and nothing sets `Number`, sets `ProcessedAt` or raises the order-processed event
-- [ ] **Proration** -- credit calculation for mid-cycle plan changes
+- [x] **Upgrade with credit** -- `UpgradeAsync` credits the unused days of replaced subscriptions and refunds a surplus (`MollieNative`, 0.6.0). The `Prorate` flag itself still throws
 - [ ] **Invoice generation** -- built-in HTML/PDF invoice renderer
-- [ ] **Plan pricing resolution** -- automatic price lookup for managed billing engine
-- [ ] **Recurring billing on `MollieNative`** -- the engine registers no subscription with Mollie, so nothing is charged after the mandate payment. Highest-priority item; see [BACKLOG.md](BACKLOG.md)
+- [x] **Plan pricing resolution** -- `IPlanPriceResolver<TKey>`, configurable by default, for `MollieNative` (0.6.0). `Managed` still charges what the consumer puts on the order item
+- [x] **Recurring billing on `MollieNative`** -- priced subscriptions are registered at Mollie and charged every cycle (0.6.0). Up to 0.5.0 nothing recurring was charged
 - [ ] **Metadata on recurring charges** -- order items carry no metadata, so only the first payment takes it to Mollie
 - [ ] **Dunning / retry logic** -- automatic payment retry with escalation
 

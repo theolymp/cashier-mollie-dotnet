@@ -66,10 +66,12 @@ public class DecimalPrecisionTests
             .ToList();
 
         // Known-positive for the sweep itself: an empty set would satisfy the loop below for any
-        // expectation. 13 mapped properties, against 16 public decimal members -- Total, TaxAmount
-        // and TotalWithTax on OrderItem are computed and [NotMapped]. A count of 16 here would mean
-        // EF had started persisting them; anything else means a column arrived or left.
-        Assert.Equal(13, decimals.Count);
+        // expectation. 19 mapped properties, against 22 public decimal members -- Total, TaxAmount
+        // and TotalWithTax on OrderItem are computed and [NotMapped]. A count of 22 here would mean
+        // EF had started persisting them; anything else means a column arrived or left. 13 until
+        // 0.6.0, which added the price snapshot on Subscription (PriceNet, TaxRatePercent,
+        // CycleValueNet) and the net split on Payment (AmountNet, TaxRatePercent, CreditNet).
+        Assert.Equal(19, decimals.Count);
 
         // Collected rather than asserted one by one, so a failure names the column instead of
         // printing "expected 18, actual null" about an unidentified property.
