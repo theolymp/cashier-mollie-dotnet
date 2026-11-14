@@ -443,6 +443,12 @@ stehen." The unit catalogue (22 plan ids, net prices, the "contains" graph) live
   swap sends an empty update (entry above), so this is new work, not existing behaviour.
 - **Schema:** refunding a remainder at the rate it was charged at needs net amount and tax rate stored per
   payment. These are new columns, so consumers need a migration, and 0.6.0 is a behaviour-changing release.
+- **Repricing** (asked by identity): Mollie charges a subscription on its own, so the library is not called
+  before each recurring payment. The resolver runs at the first payment, at upgrade and at downgrade, and
+  through `RepriceAsync(owner)`. The consumer calls `RepriceAsync` when the tax treatment changes; it
+  re-resolves every active subscription of that owner and updates the Mollie amount from the next charge.
+- **Currency:** a resolved currency other than the configured `CashierMollieOptions.Currency` is rejected,
+  never passed through.
 
 Estimate, 2026-11-14: library about 9 person-days, identity about 16 (identity's own figure). That covers
 the seam, variant A, upgrade with credit and refund, downgrade, a rounding matrix and one run against Mollie
