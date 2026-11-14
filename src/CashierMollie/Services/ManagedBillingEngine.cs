@@ -242,6 +242,16 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             "UpgradeAsync is implemented for the MollieNative engine only. On the Managed engine the "
             + "consumer prices each order item and can credit the remainder there.");
 
+    /// <summary>Not supported on the Managed engine, whose unpaid order item is retried by itself.</summary>
+    public Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, Subscription<TKey> subscription,
+        string? redirectUrl = null, CancellationToken ct = default) =>
+        throw new NotSupportedException("PayOutstandingAsync is implemented for the MollieNative engine only.");
+
+    /// <summary>Not supported on the Managed engine.</summary>
+    public Task<decimal> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription,
+        CancellationToken ct = default) =>
+        throw new NotSupportedException("CancelImmediatelyWithRefundAsync is implemented for the MollieNative engine only.");
+
     /// <summary>Not supported: the Managed engine charges what the consumer prices per order item.</summary>
     public Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default) =>
         throw new NotSupportedException(

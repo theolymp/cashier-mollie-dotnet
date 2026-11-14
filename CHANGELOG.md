@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added -- payment default and termination for good cause
+- **A failed cycle payment locks the subscription.** It becomes `past_due` (not active) and
+  `SubscriptionPastDue<TKey>` is dispatched. `ICashierService.PayOutstandingAsync` creates a
+  checkout for the oldest failed amount, as a first payment with a new mandate; once paid, the
+  Mollie subscription is moved to that mandate, and when nothing is outstanding the subscription is
+  active again (`SubscriptionPaymentRecovered<TKey>`). A grace period is the consumer's decision.
+- **`ICashierService.CancelImmediatelyWithRefundAsync`** ends a subscription now and refunds the
+  unused whole days of its paid cycle. An ordinary cancellation still refunds nothing.
+- Schema: `cashier_payments.SettlesPaymentId` (`bigint`, null, indexed).
+
 ## [0.6.0-beta.1] - 2026-11-14
 
 Prerelease so that a consumer can integrate the 0.6.0 billing before it is final. 0.6.0 itself

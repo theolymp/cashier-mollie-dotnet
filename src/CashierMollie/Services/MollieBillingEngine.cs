@@ -703,6 +703,74 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
     }
 
     /// <inheritdoc />
+    public async Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner,
+        Subscription<TKey> subscription, string? redirectUrl = null, CancellationToken ct = default)
+    {
+        if (subscription.Status != SubscriptionStatus.PastDue)
+            throw new CashierException($"Subscription {subscription.Id} is not past due.");
+
+        var outstanding = await NativeSubscriptions.OutstandingAsync(_db, subscription.Id, ct);
+        if (outstanding.Count == 0)
+            throw new CashierException($"Subscription {subscription.Id} has no outstanding payment.");
+
+        string customerId = owner.MollieCustomerId ?? subscription.MollieCustomerId
+            ?? throw new CashierException("Owner has no Mollie customer ID.");
+        var oldest = outstanding[0];
+
+        // A first payment, not a recurring one: the mandate behind the failure may be the reason
+        // for it, and the checkout lets the customer choose a payment method that works.
+        var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
+            customerId, oldest.Amount, oldest.Currency,
+            $"{subscription.Description ?? subscription.Plan}: outstanding payment",
+            redirectUrl ?? _options.FirstPaymentRedirectUrl, _options.EffectiveWebhookUrl, metadata: null, ct);
+
+        _db.Payments.Add(new Payment<TKey>
+        {
+            OwnerId = subscription.OwnerId,
+            SubscriptionId = subscription.Id,
+            MolliePaymentId = molliePayment.Id,
+            Status = molliePayment.Status ?? "open",
+            Amount = oldest.Amount,
+            Currency = oldest.Currency,
+            AmountNet = oldest.AmountNet,
+            TaxRatePercent = oldest.TaxRatePercent,
+            CreditNet = oldest.CreditNet,
+            SettlesPaymentId = oldest.Id,
+        });
+        await _db.SaveChangesAsync(ct);
+
+        string checkoutUrl = molliePayment.Links?.Checkout?.Href
+            ?? throw new CashierException("Mollie did not return a checkout URL for the outstanding payment.");
+        return new OutstandingPaymentResult(checkoutUrl, oldest.Amount, outstanding.Count - 1);
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription,
+        CancellationToken ct = default)
+    {
+        if (!NativeSubscriptions.IsPriced(subscription))
+            throw new CashierException($"Subscription {subscription.Id} has no price, so its unused value is unknown.");
+
+        var now = DateTimeOffset.UtcNow;
+        int days = subscription.CycleStartedAt.HasValue && subscription.CycleValueNet.HasValue
+            ? Money.RemainingWholeDays(subscription.CycleStartedAt.Value, _options.CycleDays, now)
+            : 0;
+        decimal value = days == 0 ? 0m : Money.Prorate(subscription.CycleValueNet!.Value, days, _options.CycleDays);
+
+        // Stop the charging first: a refund that fails afterwards leaves money owed, while the
+        // opposite order could refund a cycle and then charge the next one.
+        await CancelSubscriptionAsync(subscription, immediately: true, ct);
+
+        if (value <= 0m)
+            return 0m;
+
+        var (gross, left) = await RefundNetAsync(subscription, value, ct);
+        if (left > 0m)
+            LogUnrefundedSurplus(subscription.Id, left);
+        return gross;
+    }
+
+    /// <inheritdoc />
     public Task ProcessDueItemsAsync(CancellationToken ct = default)
         => Task.CompletedTask; // No-op for Mollie native engine
 }

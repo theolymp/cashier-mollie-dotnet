@@ -88,6 +88,30 @@ internal static class NativeSubscriptions
         return price;
     }
 
+    /// <summary>
+    /// Failed payments of a priced cycle (first cycle, upgrade or Mollie's own charge) that no paid
+    /// settlement points at yet, oldest first. A failed settlement attempt is not itself outstanding:
+    /// the failed cycle it was meant to settle still is.
+    /// </summary>
+    internal static async Task<List<Payment<TKey>>> OutstandingAsync<TKey>(CashierDbContext<TKey> db,
+        long subscriptionId, CancellationToken ct) where TKey : IEquatable<TKey>
+    {
+        var failed = await db.Payments
+            .Where(p => p.SubscriptionId == subscriptionId && p.FailedAt != null && p.PaidAt == null
+                && p.AmountNet != null && p.SettlesPaymentId == null)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync(ct);
+        if (failed.Count == 0)
+            return failed;
+
+        var failedIds = failed.Select(f => f.Id).ToList();
+        var settled = await db.Payments
+            .Where(p => p.SettlesPaymentId != null && failedIds.Contains(p.SettlesPaymentId.Value) && p.PaidAt != null)
+            .Select(p => p.SettlesPaymentId!.Value)
+            .ToListAsync(ct);
+        return failed.Where(f => !settled.Contains(f.Id)).ToList();
+    }
+
     /// <summary>The mandate of the owner's most recent payment that carries one, or null.</summary>
     internal static Task<string?> LatestMandateAsync<TKey>(CashierDbContext<TKey> db, TKey ownerId,
         CancellationToken ct) where TKey : IEquatable<TKey> =>

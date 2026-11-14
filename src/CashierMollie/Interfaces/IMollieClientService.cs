@@ -57,6 +57,11 @@ public interface IMollieClientService
     Task<SubscriptionResponse> UpdateSubscriptionAsync(string customerId, string subscriptionId,
         decimal? amount = null, string? currency = null, string? description = null, CancellationToken ct = default);
 
+    /// <summary>Points a Mollie subscription at another mandate, for example after the customer
+    /// paid an outstanding amount with a new payment method.</summary>
+    Task<SubscriptionResponse> UpdateSubscriptionMandateAsync(string customerId, string subscriptionId,
+        string mandateId, CancellationToken ct = default);
+
     /// <summary>Retrieves a specific mandate for a customer.</summary>
     Task<MandateResponse> GetMandateAsync(string customerId, string mandateId, CancellationToken ct = default);
 

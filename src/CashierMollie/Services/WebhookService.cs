@@ -47,6 +47,11 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             + "it at Mollie again. The payment is recorded and may need a refund.")]
     private partial void LogChargedAfterEnd(long subscriptionId, string paymentId);
 
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Subscription {SubscriptionId}: the outstanding amount was paid, but the Mollie "
+            + "subscription could not be moved to the new mandate; its next charge may fail again.")]
+    private partial void LogMandateSwitchFailed(long subscriptionId, Exception exception);
+
     [LoggerMessage(Level = LogLevel.Error,
         Message = "Could not cancel ended subscription {SubscriptionId} at Mollie again.")]
     private partial void LogCancelAgainFailed(long subscriptionId, Exception exception);
@@ -159,6 +164,24 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             await _db.SaveChangesAsync(ct);
         }
 
+        // ── Payment default: lock on a failed cycle, unlock when nothing is outstanding ──
+        if (subscription != null && NativeSubscriptions.IsPriced(subscription) && statusChanged)
+        {
+            if (molliePayment.Status is "failed" or "canceled" or "expired"
+                && localPayment.AmountNet != null && localPayment.SettlesPaymentId == null
+                && subscription.Status == SubscriptionStatus.Active)
+            {
+                subscription.Status = SubscriptionStatus.PastDue;
+                await _db.SaveChangesAsync(ct);
+                await _eventDispatcher.DispatchAsync(
+                    new SubscriptionPastDue<TKey>(subscription, localPayment, localPayment.OwnerId), ct);
+            }
+            else if (molliePayment.Status == "paid" && subscription.Status == SubscriptionStatus.PastDue)
+            {
+                await RecoverIfSettledAsync(subscription, localPayment, ct);
+            }
+        }
+
         // Check for chargebacks
         if (mollieChargebackAmount != null && mollieChargebackAmount > localPayment.AmountChargedBack)
         {
@@ -197,6 +220,37 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
                     new FirstPaymentFailed<TKey>(localPayment, localPayment.OwnerId), ct);
             }
         }
+    }
+
+    /// <summary>
+    /// After a paid payment of a past-due subscription: if nothing is outstanding any more, the
+    /// subscription is active again. A settlement paid with a new mandate moves the Mollie
+    /// subscription to that mandate, so the next cycle is not charged from the one that failed.
+    /// </summary>
+    private async Task RecoverIfSettledAsync(Subscription<TKey> subscription, Payment<TKey> paid, CancellationToken ct)
+    {
+        if (paid.SettlesPaymentId.HasValue && !string.IsNullOrEmpty(paid.MollieMandateId)
+            && NativeSubscriptions.IsRegistered(subscription) && !string.IsNullOrEmpty(subscription.MollieCustomerId))
+        {
+            try
+            {
+                await _mollieClient.UpdateSubscriptionMandateAsync(subscription.MollieCustomerId,
+                    subscription.MollieSubscriptionId!, paid.MollieMandateId, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                LogMandateSwitchFailed(subscription.Id, ex);
+            }
+        }
+
+        var outstanding = await NativeSubscriptions.OutstandingAsync(_db, subscription.Id, ct);
+        if (outstanding.Count > 0)
+            return;
+
+        subscription.Status = SubscriptionStatus.Active;
+        await _db.SaveChangesAsync(ct);
+        await _eventDispatcher.DispatchAsync(
+            new SubscriptionPaymentRecovered<TKey>(subscription, paid, paid.OwnerId), ct);
     }
 
     /// <summary>

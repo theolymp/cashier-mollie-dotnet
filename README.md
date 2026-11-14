@@ -85,7 +85,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **Chargeback detection** -- automatic tracking and events for chargebacks
 - **Invoice interface** -- `IInvoiceGenerator<TKey>` is declared and registered, but **nothing in this library calls it**; implementing it currently has no effect
 - **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
-- **Event system** -- 24 domain events via pluggable `ICashierEventDispatcher`
+- **Event system** -- 26 domain events via pluggable `ICashierEventDispatcher`
 - **EF Core integration** -- 7 entities across 7 tables with a single `ModelBuilder` extension
 - **Generic owner key** -- supports `string`, `int`, `Guid`, or any `IEquatable<TKey>` type for your user model
 - **Dependency injection** -- first-class ASP.NET Core DI support with a single `AddCashierMollie<TKey>()` call
@@ -501,6 +501,16 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
 - **Unpriced subscriptions stay local.** Mandate-only subscriptions and subscriptions created before
   0.6.0 have no price, and nothing is registered at Mollie for them. Up to 0.5.0 that was true of
   every subscription on this engine: it registered nothing, and nothing recurring was charged.
+- **Payment default.** A failed cycle payment (first cycle, upgrade, or Mollie's own charge) puts
+  the subscription `past_due`, which is not active, and dispatches `SubscriptionPastDue<TKey>`.
+  `PayOutstandingAsync(owner, name)` returns a checkout for the oldest failed amount; it is a first
+  payment, so it also creates a new mandate, and the Mollie subscription moves to it once paid.
+  When nothing is outstanding, the subscription is active again (`SubscriptionPaymentRecovered`).
+  A later successful cycle does not settle an earlier failed one. Any grace period before you lock
+  access is yours: `Payment.FailedAt` tells you when.
+- **Termination for good cause.** `CancelImmediatelyWithRefundAsync(owner, name)` ends the
+  subscription now, at Mollie too, and refunds the unused whole days of the paid cycle. An ordinary
+  `CancelAsync` refunds nothing and runs to the end of the paid cycle.
 - **Not measured yet:** how Mollie books an amount change in the middle of a cycle. A cycle payment
   that arrives at a different amount than the stored price is recorded and logged as a warning.
 
@@ -829,6 +839,8 @@ it in your `ICashierEventDispatcher`.
 | `SubscriptionResumed<TKey>` | A cancelled subscription was resumed |
 | `SubscriptionPlanSwapped<TKey>` | A subscription plan was changed |
 | `SubscriptionUpgraded<TKey>` | `UpgradeAsync` replaced subscriptions with a new one; carries the credit, charge and refunds for the invoice |
+| `SubscriptionPastDue<TKey>` | A priced cycle payment failed; the subscription is `past_due` and no longer active |
+| `SubscriptionPaymentRecovered<TKey>` | The last outstanding payment of a `past_due` subscription was paid; it is active again |
 | `SubscriptionQuantityUpdated<TKey>` | Subscription quantity was updated |
 | `OrderPaymentPaid<TKey>` | A payment was successfully processed |
 | `OrderPaymentFailed<TKey>` | A payment attempt failed -- see [who retries](#who-retries-a-failed-payment-read-before-handling-orderpaymentfailed) |
@@ -1000,6 +1012,7 @@ and will not tell you.
 | `AmountNet` | `decimal(18,4)?` | Net part of `Amount` for a priced cycle payment; null for a mandate check or one-off charge (0.6.0) |
 | `TaxRatePercent` | `decimal(18,4)?` | Tax rate the payment was charged at (0.6.0) |
 | `CreditNet` | `decimal(18,4)` | Net credit an upgrade offset against this cycle, an invoice line of its own (0.6.0) |
+| `SettlesPaymentId` | `bigint?` | For a payment made through `PayOutstandingAsync`: the failed cycle payment it settles (0.6.0) |
 | `MollieMandateId` | `varchar(255)?` | Associated mandate ID |
 | `Method` | `varchar(50)?` | Payment method used |
 | `PaidAt` | `datetimeoffset?` | When payment was confirmed |
