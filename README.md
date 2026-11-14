@@ -395,6 +395,11 @@ var result = await _cashier.UpgradeAsync(user, "team", "team", replaces: [proSub
 - **Which** subscriptions an upgrade replaces is yours to decide: the library knows plan ids, not
   what a plan contains. The charge is the first call to Mollie, so a refused mandate leaves
   everything as it was.
+- **Names are unique per owner over every row**, ended ones included: give the new subscription a
+  name the owner has never used (for example the unit plus a date). Checked before the charge.
+- **After the charge nothing is thrown.** A Mollie step that fails afterwards is logged and listed
+  in `result.Incomplete`; the registration is retried by the payment's webhook or by
+  `RepriceAsync`.
 - `SubscriptionUpgraded<TKey>` carries the same result for an invoice handler.
 
 ### Trial periods

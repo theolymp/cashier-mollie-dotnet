@@ -89,8 +89,11 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// Re-resolves the price of every active subscription of the owner that Mollie charges, and
     /// sends a changed amount to Mollie, effective from the next charge (MollieNative engine only).
     /// Call it when anything the price depends on has changed, such as the owner's tax treatment.
+    /// It also registers an active, paid subscription that is missing at Mollie because its
+    /// registration failed after the payment, which makes it the repair for an upgrade whose
+    /// <c>UpgradeResult.Incomplete</c> lists a registration.
     /// </summary>
-    /// <returns>The number of subscriptions whose amount was changed at Mollie.</returns>
+    /// <returns>The number of subscriptions changed or registered at Mollie.</returns>
     Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
     /// <summary>

@@ -15,6 +15,21 @@ internal static class NativeSubscriptions
     /// <summary>Metadata key carrying the local subscription id on the Mollie subscription.</summary>
     internal const string SubscriptionIdMetadataKey = "cashier_subscription_id";
 
+    /// <summary>
+    /// Placeholder written to <c>MollieSubscriptionId</c> while one webhook registers the
+    /// subscription, so that a concurrent webhook loses on the concurrency token instead of
+    /// registering a second Mollie subscription.
+    /// </summary>
+    internal const string RegisteringMarker = "registering";
+
+    /// <summary>A claim older than this is taken to be from a process that died mid-registration.</summary>
+    internal static readonly TimeSpan StaleClaim = TimeSpan.FromMinutes(10);
+
+    /// <summary>True when the subscription has a real Mollie id, not none and not a claim.</summary>
+    internal static bool IsRegistered<TKey>(Subscription<TKey> subscription) where TKey : IEquatable<TKey> =>
+        !string.IsNullOrEmpty(subscription.MollieSubscriptionId)
+        && subscription.MollieSubscriptionId != RegisteringMarker;
+
     /// <summary>The Mollie interval for one cycle.</summary>
     internal static string Interval(CashierMollieOptions options) => $"{options.CycleDays} days";
 

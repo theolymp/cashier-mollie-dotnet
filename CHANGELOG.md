@@ -46,6 +46,15 @@ every `CycleDays` days (default 30). What reaches you:
 - A resolved currency other than `Currency` is rejected.
 - Not measured yet: how Mollie books an amount change in the middle of a cycle. A cycle payment at
   an unexpected amount is recorded and logged as a warning.
+- **After the charge nothing is thrown.** Once an upgrade has charged the customer, every local
+  record is saved before the next call to Mollie; a failing registration, cancellation or refund
+  is logged and listed in `UpgradeResult.Incomplete`. Registration is retried by the webhook of the
+  payment, or by `RepriceAsync`, which also registers an active paid subscription missing at
+  Mollie. Two concurrent webhooks register one Mollie subscription, not two (a claim on the
+  concurrency token). A cancelled subscription keeps its Mollie id, so a payment under way still
+  finds it, and a payment Mollie creates after the end date makes the webhook cancel again.
+- Subscription names stay unique per owner over every row, ended ones included: an upgrade needs a
+  name the owner has never used, and is refused before the charge otherwise.
 
 ### Schema -- a migration is needed
 - `cashier_subscriptions`: `PriceNet`, `TaxRatePercent`, `CycleValueNet` (`decimal(18,4)`, null),

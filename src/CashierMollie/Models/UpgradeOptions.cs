@@ -38,6 +38,11 @@ public record ReplacedSubscriptionCredit(
 /// <param name="UnrefundedNet">Net surplus that could not be refunded because the payments behind
 /// it had no refundable amount left. 0 in every ordinary case; anything else needs a manual refund
 /// and is also logged as a warning.</param>
+/// <param name="Incomplete">Steps at Mollie that failed after the customer was charged, such as
+/// registering the new subscription or cancelling a replaced one. Empty in the ordinary case. The
+/// local state is recorded either way; registration is retried by the webhook when the upgrade
+/// payment is reported paid, and a replaced subscription that Mollie charges again is cancelled
+/// again by the webhook. Each failure is also logged as an error.</param>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
 public record UpgradeResult<TKey>(
     Subscription<TKey> Subscription,
@@ -47,4 +52,5 @@ public record UpgradeResult<TKey>(
     decimal ChargedNet,
     decimal ChargedGross,
     Payment<TKey>? Payment,
-    decimal UnrefundedNet) where TKey : IEquatable<TKey>;
+    decimal UnrefundedNet,
+    IReadOnlyList<string> Incomplete) where TKey : IEquatable<TKey>;

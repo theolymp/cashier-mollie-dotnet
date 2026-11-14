@@ -42,6 +42,15 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             + "gross. The payment is recorded at the stored net and tax rate; check the amount at Mollie.")]
     private partial void LogCycleAmountMismatch(long subscriptionId, decimal charged, decimal expected);
 
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Mollie charged ended subscription {SubscriptionId} with payment {PaymentId}; cancelling "
+            + "it at Mollie again. The payment is recorded and may need a refund.")]
+    private partial void LogChargedAfterEnd(long subscriptionId, string paymentId);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Could not cancel ended subscription {SubscriptionId} at Mollie again.")]
+    private partial void LogCancelAgainFailed(long subscriptionId, Exception exception);
+
     /// <inheritdoc />
     public async Task HandlePaymentAsync(string molliePaymentId, CancellationToken ct = default)
     {
@@ -129,6 +138,12 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             await _eventDispatcher.DispatchAsync(
                 new SubscriptionCreated<TKey>(subscription, localPayment.OwnerId), ct);
         }
+        else if (molliePayment.Status == "paid" && subscription != null && !isCyclePayment)
+        {
+            // A first cycle charged from a mandate (create or upgrade): the subscription is already
+            // active, and this completes its registration at Mollie if that failed at the time.
+            await EnsureRegisteredAtMollieAsync(localPayment, ct);
+        }
         else if (molliePayment.Status == "paid" && subscription != null && isCyclePayment && statusChanged)
         {
             // A new cycle Mollie charged on its own. A downgrade sent earlier takes effect here:
@@ -197,6 +212,24 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         if (subscription == null)
             return null;
 
+        // Mollie created this payment after the subscription ended: a cancellation at Mollie that
+        // failed (an upgrade reports it in Incomplete). Cancel again; the payment is still
+        // recorded, and OrderPaymentPaid carries the ended subscription for the consumer to refund.
+        if (subscription.EndsAt.HasValue && molliePayment.CreatedAt > subscription.EndsAt.Value.UtcDateTime
+            && !string.IsNullOrEmpty(subscription.MollieCustomerId))
+        {
+            LogChargedAfterEnd(subscription.Id, molliePayment.Id);
+            try
+            {
+                await _mollieClient.CancelSubscriptionAsync(subscription.MollieCustomerId,
+                    molliePayment.SubscriptionId!, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                LogCancelAgainFailed(subscription.Id, ex);
+            }
+        }
+
         decimal charged = decimal.Parse(molliePayment.Amount.Value, CultureInfo.InvariantCulture);
         if (subscription.PriceNet.HasValue)
         {
@@ -234,11 +267,14 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             return;
 
         var subscription = await _db.Subscriptions.FindAsync([payment.SubscriptionId.Value], ct);
+        var now = DateTimeOffset.UtcNow;
+        bool staleClaim = subscription?.MollieSubscriptionId == NativeSubscriptions.RegisteringMarker
+            && subscription.UpdatedAt <= now - NativeSubscriptions.StaleClaim;
         if (subscription == null
             || subscription.Status != SubscriptionStatus.Active
             || subscription.EndsAt.HasValue
             || !NativeSubscriptions.IsPriced(subscription)
-            || !string.IsNullOrEmpty(subscription.MollieSubscriptionId))
+            || (!string.IsNullOrEmpty(subscription.MollieSubscriptionId) && !staleClaim))
         {
             return;
         }
@@ -248,12 +284,35 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         if (string.IsNullOrEmpty(mandateId))
             return;
 
-        var now = DateTimeOffset.UtcNow;
+        // Claim first. Two webhooks for the same payment can arrive together; the one whose save
+        // loses on the concurrency token stops here, before Mollie is asked for anything, instead
+        // of registering a second subscription that would charge the customer twice per cycle.
+        subscription.MollieSubscriptionId = NativeSubscriptions.RegisteringMarker;
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return;
+        }
+
         DateTimeOffset start = subscription.TrialEndsAt > now
             ? subscription.TrialEndsAt.Value
             : (subscription.CycleStartedAt ?? now).AddDays(_options.CycleDays);
 
-        await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription, mandateId, start, ct);
+        try
+        {
+            await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription, mandateId, start, ct);
+        }
+        catch
+        {
+            // Release the claim so Mollie's retry of this webhook can try again.
+            subscription.MollieSubscriptionId = null;
+            await _db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+
         await _db.SaveChangesAsync(ct);
     }
 }

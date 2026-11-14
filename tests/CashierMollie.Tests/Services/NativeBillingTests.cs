@@ -315,7 +315,8 @@ public sealed class NativeBillingTests : IDisposable
         await _engine.CancelSubscriptionAsync(sub, immediately: false);
 
         Assert.Equal(cycleEnd, sub.EndsAt);
-        Assert.Null(sub.MollieSubscriptionId);
+        // Kept, so a payment already under way at Mollie still finds the subscription.
+        Assert.Equal("sub_reg", sub.MollieSubscriptionId);
         await _mollie.Received(1).CancelSubscriptionAsync("cst_1", "sub_reg", Arg.Any<CancellationToken>());
 
         await _engine.ResumeSubscriptionAsync(sub);
@@ -369,7 +370,8 @@ public sealed class NativeBillingTests : IDisposable
         // The replaced one ends now, at Mollie too; the new one is active with a fresh cycle and
         // Mollie charges its full price one cycle from now.
         Assert.Equal(SubscriptionStatus.Cancelled, pro.Status);
-        Assert.Null(pro.MollieSubscriptionId);
+        Assert.Equal("sub_reg", pro.MollieSubscriptionId);
+        Assert.Empty(result.Incomplete);
         Assert.Equal(result.Subscription.Id, pro.ReplacedBySubscriptionId);
         await _mollie.Received(1).CancelSubscriptionAsync("cst_1", "sub_reg", Arg.Any<CancellationToken>());
         Assert.Equal(SubscriptionStatus.Active, result.Subscription.Status);
@@ -490,6 +492,214 @@ public sealed class NativeBillingTests : IDisposable
         await Assert.ThrowsAsync<CashierException>(() =>
             _engine.UpgradeAsync(new TestBillable("u1", "cst_1"), "team", "team", [pro]));
         Assert.Equal(SubscriptionStatus.Active, pro.Status);
+    }
+
+    // ── Review findings, 2026-11-14: failures after the charge, races, late payments ──
+
+    [Fact]
+    // (OwnerId, Name) is unique over every row. Reusing the replaced subscription's name would
+    // pass any "live subscriptions only" check and then fail in the database -- after the charge.
+    public async Task Upgrade_ReusingTheReplacedName_IsRefusedBeforeTheCharge()
+    {
+        var pro = await SeedRegistered("pro", 9.99m, startedDaysAgo: 3, name: "modcockpit");
+
+        await Assert.ThrowsAsync<CashierException>(() =>
+            _engine.UpgradeAsync(new TestBillable("u1", "cst_1", "mdt_1"), "modcockpit", "team", [pro]));
+
+        await _mollie.DidNotReceiveWithAnyArgs().CreateRecurringPaymentAsync(
+            default!, default!, default, default!, default!, default!, default, default);
+        Assert.Equal(SubscriptionStatus.Active, pro.Status);
+    }
+
+    [Fact]
+    // Once the customer is charged, a failing Mollie step must not lose the charge or claim the
+    // upgrade failed. Everything local is recorded; the failure is reported in Incomplete; and the
+    // webhook of the upgrade payment completes the registration.
+    public async Task Upgrade_RegistrationFailingAfterTheCharge_IsReported_AndCompletedByTheWebhook()
+    {
+        var pro = await SeedRegistered("pro", 9.99m, startedDaysAgo: 10.4);
+        _mollie.CreateSubscriptionAsync(default!, default, default!, default!, default!, default!, default,
+                default, default, default)
+            .ReturnsForAnyArgs(Task.FromException<Mollie.Api.Models.Subscription.Response.SubscriptionResponse>(
+                new HttpRequestException("Mollie down")));
+
+        var result = await _engine.UpgradeAsync(new TestBillable("u1", "cst_1", "mdt_1"), "team", "team", [pro]);
+
+        Assert.Single(result.Incomplete);
+        Assert.Null(result.Subscription.MollieSubscriptionId);
+        var payment = await _db.Payments.SingleAsync(p => p.MolliePaymentId == result.Payment!.MolliePaymentId);
+        Assert.Equal(result.Subscription.Id, payment.SubscriptionId);
+        Assert.Equal(SubscriptionStatus.Cancelled, pro.Status);
+
+        _mollie.WithRecurringDefaults();
+        _mollie.GetPaymentAsync(payment.MolliePaymentId, Arg.Any<CancellationToken>())
+            .Returns(MolliePayment(payment.MolliePaymentId, "paid", "mdt_1"));
+        await _webhook.HandlePaymentAsync(payment.MolliePaymentId);
+
+        Assert.Equal("sub_auto_1", result.Subscription.MollieSubscriptionId);
+    }
+
+    [Fact]
+    public async Task Upgrade_ACancelAndARefundThatFail_AreReported_NotThrown()
+    {
+        var pro = await SeedRegistered("pro", 9.99m, startedDaysAgo: 10.4);
+        _mollie.CancelSubscriptionAsync(default!, default!, default)
+            .ReturnsForAnyArgs(Task.FromException(new HttpRequestException("Mollie down")));
+        _refunds.RefundAsync(default!, default, default, default)
+            .ReturnsForAnyArgs(Task.FromException<Refund<string>>(new HttpRequestException("refund refused")));
+
+        var result = await _engine.UpgradeAsync(new TestBillable("u1", "cst_1", "mdt_1"), "team", "team", [pro],
+            new UpgradeOptions { OffsetCredit = false });
+
+        Assert.Equal(2, result.Incomplete.Count);
+        Assert.Equal(6.33m, result.UnrefundedNet);
+        Assert.Equal(SubscriptionStatus.Cancelled, pro.Status);
+        Assert.Equal(SubscriptionStatus.Active, result.Subscription.Status);
+    }
+
+    [Fact]
+    public async Task Upgrade_CreditOnly_WithAFailedRegistration_IsRepairedByReprice()
+    {
+        var module = await SeedRegistered("module.a", 3.99m, startedDaysAgo: 1.5, mollieId: "sub_m");
+        _prices.With("suite", 1.00m);
+        _mollie.CreateSubscriptionAsync(default!, default, default!, default!, default!, default!, default,
+                default, default, default)
+            .ReturnsForAnyArgs(Task.FromException<Mollie.Api.Models.Subscription.Response.SubscriptionResponse>(
+                new HttpRequestException("Mollie down")));
+        var result = await _engine.UpgradeAsync(new TestBillable("u1", "cst_1", "mdt_1"), "suite", "suite", [module]);
+        Assert.Null(result.Payment);  // nothing charged, so no webhook will ever retry
+        Assert.Single(result.Incomplete);
+
+        _mollie.WithRecurringDefaults();
+        int changed = await _engine.RepriceAsync("u1");
+
+        Assert.Equal(1, changed);
+        Assert.Equal("sub_auto_1", result.Subscription.MollieSubscriptionId);
+        // Twice with the same arguments: the attempt that failed during the upgrade, and the repair.
+        await _mollie.Received(2).CreateSubscriptionAsync("cst_1", 1.19m, "EUR", "30 days", "Plan suite",
+            WebhookUrl, "mdt_1", Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<DateTimeOffset?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_WithMandate_RegistrationFailing_KeepsTheCharge_AndTheWebhookRegisters()
+    {
+        _mollie.CreateSubscriptionAsync(default!, default, default!, default!, default!, default!, default,
+                default, default, default)
+            .ReturnsForAnyArgs(Task.FromException<Mollie.Api.Models.Subscription.Response.SubscriptionResponse>(
+                new HttpRequestException("Mollie down")));
+
+        var result = await _engine.CreateSubscriptionAsync(new TestBillable("u1", "cst_1", "mdt_1"), "pro", "pro",
+            new SubscriptionOptions());
+
+        var payment = await _db.Payments.SingleAsync();
+        Assert.Equal(SubscriptionStatus.Active, result.Subscription.Status);
+        Assert.Equal(result.Subscription.Id, payment.SubscriptionId);
+
+        _mollie.WithRecurringDefaults();
+        _mollie.GetPaymentAsync(payment.MolliePaymentId, Arg.Any<CancellationToken>())
+            .Returns(MolliePayment(payment.MolliePaymentId, "paid", "mdt_1"));
+        await _webhook.HandlePaymentAsync(payment.MolliePaymentId);
+
+        Assert.Equal("sub_auto_1", result.Subscription.MollieSubscriptionId);
+    }
+
+    [Fact]
+    // Two webhooks for the same paid payment of an active subscription that still has to be
+    // registered. Both contexts read it unregistered; the second one's claim loses on the
+    // concurrency token, and Mollie is asked exactly once. (A first version of this test let the
+    // second context read the subscription while it was still pending, so it returned early for
+    // another reason and stayed green with the claim removed. Measured by that sabotage.)
+    public async Task ConcurrentWebhooks_RegisterOneMollieSubscription()
+    {
+        string dbName = Guid.NewGuid().ToString();
+        using var first = TestDbContextFactory.Create(dbName);
+        using var second = TestDbContextFactory.Create(dbName);
+        var sub = new Subscription<string>
+        {
+            OwnerId = "u1", Name = "pro", Plan = "pro", MollieCustomerId = "cst_1",
+            Status = SubscriptionStatus.Active, PriceNet = 9.99m, TaxRatePercent = 19m,
+            Description = "Plan pro", CycleStartedAt = DateTimeOffset.UtcNow, CycleValueNet = 9.99m,
+        };
+        first.Subscriptions.Add(sub);
+        await first.SaveChangesAsync();
+        first.Payments.Add(new Payment<string>
+        {
+            OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "tr_first", Status = "paid",
+            PaidAt = DateTimeOffset.UtcNow, Amount = 11.89m, AmountNet = 9.99m, TaxRatePercent = 19m,
+            MollieMandateId = "mdt_1",
+        });
+        await first.SaveChangesAsync();
+        _mollie.GetPaymentAsync("tr_first", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_first", "paid", "mdt_1"));
+        var options = Options.Create(_options);
+
+        var stale = await second.Subscriptions.FindAsync(sub.Id);
+        Assert.Null(stale!.MollieSubscriptionId);
+        await new WebhookService<string>(first, _mollie, _events, options,
+            NullLogger<WebhookService<string>>.Instance).HandlePaymentAsync("tr_first");
+        await new WebhookService<string>(second, _mollie, _events, options,
+            NullLogger<WebhookService<string>>.Instance).HandlePaymentAsync("tr_first");
+
+        await _mollie.ReceivedWithAnyArgs(1).CreateSubscriptionAsync(
+            default!, default, default!, default!, default!, default!, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task AFreshClaim_IsLeftAlone_AStaleOneIsTakenOver()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 0.1, mollieId: "registering");
+        var payment = await _db.Payments.SingleAsync();
+        _mollie.GetPaymentAsync(payment.MolliePaymentId, Arg.Any<CancellationToken>())
+            .Returns(MolliePayment(payment.MolliePaymentId, "paid", "mdt_1"));
+
+        await _webhook.HandlePaymentAsync(payment.MolliePaymentId);
+        await _mollie.DidNotReceiveWithAnyArgs().CreateSubscriptionAsync(
+            default!, default, default!, default!, default!, default!, default, default, default, default);
+
+        // SaveChanges stamps UpdatedAt itself, so the age is set on the tracked entity the
+        // webhook will read, without saving.
+        sub.UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-11);
+        await _webhook.HandlePaymentAsync(payment.MolliePaymentId);
+
+        Assert.Equal("sub_auto_1", sub.MollieSubscriptionId);
+    }
+
+    [Fact]
+    // The subscription was cancelled while a payment was under way at Mollie. Before the review
+    // the cancel cleared the Mollie id and this payment was silently dropped.
+    public async Task APaymentUnderWayAtCancel_IsStillRecorded()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        await _engine.CancelSubscriptionAsync(sub, immediately: true);
+        var inFlight = MolliePayment("tr_late", "paid", "mdt_1", "sub_reg", 11.89m);
+        inFlight.CreatedAt = sub.EndsAt!.Value.UtcDateTime.AddMinutes(-1);
+        _mollie.GetPaymentAsync("tr_late", Arg.Any<CancellationToken>()).Returns(inFlight);
+        _mollie.ClearReceivedCalls();
+
+        await _webhook.HandlePaymentAsync("tr_late");
+
+        Assert.True(await _db.Payments.AnyAsync(p => p.MolliePaymentId == "tr_late"));
+        await _mollie.DidNotReceiveWithAnyArgs().CancelSubscriptionAsync(default!, default!, default);
+    }
+
+    [Fact]
+    // Mollie charged after the end date: the cancellation at Mollie had failed. The webhook
+    // records the payment and cancels again.
+    public async Task APaymentCreatedAfterTheEnd_CancelsAtMollieAgain()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        sub.Status = SubscriptionStatus.Cancelled;
+        sub.EndsAt = DateTimeOffset.UtcNow.AddDays(-2);
+        await _db.SaveChangesAsync();
+        var late = MolliePayment("tr_after", "paid", "mdt_1", "sub_reg", 11.89m);
+        late.CreatedAt = DateTime.UtcNow;
+        _mollie.GetPaymentAsync("tr_after", Arg.Any<CancellationToken>()).Returns(late);
+
+        await _webhook.HandlePaymentAsync("tr_after");
+
+        Assert.True(await _db.Payments.AnyAsync(p => p.MolliePaymentId == "tr_after"));
+        await _mollie.Received(1).CancelSubscriptionAsync("cst_1", "sub_reg", Arg.Any<CancellationToken>());
     }
 
     [Fact]
