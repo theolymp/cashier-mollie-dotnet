@@ -97,6 +97,35 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
     /// <summary>
+    /// Creates a Mollie checkout for the oldest outstanding cycle payment of a <c>past_due</c>
+    /// subscription (MollieNative engine only). It is a first payment, so it also creates a new
+    /// mandate, and once it is paid the Mollie subscription charges that mandate from then on.
+    /// When no outstanding payment remains, the subscription is active again.
+    /// </summary>
+    /// <returns>The checkout URL, the amount, and how many outstanding payments remain after this one.</returns>
+    /// <exception cref="Exceptions.CashierException">The subscription has nothing outstanding.</exception>
+    Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, string name,
+        string? redirectUrl = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Ends a subscription now and refunds the unused whole days of its paid cycle onto the
+    /// payments behind it (MollieNative engine only), for a termination for good cause. An
+    /// ordinary cancellation (<see cref="CancelAsync"/>) refunds nothing: it runs to the end of
+    /// the paid cycle.
+    /// </summary>
+    /// <returns>Remaining days, their net value, the gross refunded and any net that could not be
+    /// refunded (also logged); a failed refund is reported there rather than thrown, because the
+    /// subscription has already ended.</returns>
+    Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// The failed priced payments of a subscription that are not yet settled, oldest first: what
+    /// keeps it <c>past_due</c> and what <see cref="PayOutstandingAsync"/> checks out next.
+    /// </summary>
+    Task<IReadOnlyList<Payment<TKey>>> GetOutstandingPaymentsAsync(IBillable<TKey> owner, string name,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Checks whether the owner has an active subscription with the given name.
     /// Returns true if the subscription is active, on a grace period, or on a trial.
     /// </summary>

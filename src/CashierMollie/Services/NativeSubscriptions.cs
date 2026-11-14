@@ -88,12 +88,44 @@ internal static class NativeSubscriptions
         return price;
     }
 
+    /// <summary>Mollie statuses after which a payment brought in no money.</summary>
+    internal static bool IsFailedStatus(string? status) => status is "failed" or "canceled" or "expired";
+
+    /// <summary>
+    /// Priced payments of the subscription (first cycle, upgrade or Mollie's own charge) whose
+    /// status is failed, canceled or expired and that no PAID settlement points at, oldest first.
+    /// Decided from the stored status, not from timestamps: a SEPA debit can be reported paid and
+    /// then fail, and its PaidAt says nothing about the money any more. A failed settlement attempt
+    /// is not itself a debt; the payment it was meant to settle still is.
+    /// </summary>
+    internal static async Task<List<Payment<TKey>>> OutstandingAsync<TKey>(CashierDbContext<TKey> db,
+        long subscriptionId, CancellationToken ct) where TKey : IEquatable<TKey>
+    {
+        var failed = (await db.Payments
+                .Where(p => p.SubscriptionId == subscriptionId && p.AmountNet != null && p.SettlesPaymentId == null
+                    && (p.Status == "failed" || p.Status == "canceled" || p.Status == "expired"))
+                .ToListAsync(ct))
+            // Ordered in memory by id: SQLite cannot ORDER BY a DateTimeOffset.
+            .OrderBy(p => p.Id)
+            .ToList();
+        if (failed.Count == 0)
+            return failed;
+
+        var failedIds = failed.Select(f => f.Id).ToList();
+        var settled = await db.Payments
+            .Where(p => p.SettlesPaymentId != null && failedIds.Contains(p.SettlesPaymentId.Value) && p.Status == "paid")
+            .Select(p => p.SettlesPaymentId!.Value)
+            .ToListAsync(ct);
+        return failed.Where(f => !settled.Contains(f.Id)).ToList();
+    }
+
     /// <summary>The mandate of the owner's most recent payment that carries one, or null.</summary>
     internal static Task<string?> LatestMandateAsync<TKey>(CashierDbContext<TKey> db, TKey ownerId,
         CancellationToken ct) where TKey : IEquatable<TKey> =>
         db.Payments
             .Where(p => p.OwnerId!.Equals(ownerId) && p.MollieMandateId != null)
-            .OrderByDescending(p => p.CreatedAt)
+            // By id rather than CreatedAt: same order, and SQLite cannot sort a DateTimeOffset.
+            .OrderByDescending(p => p.Id)
             .Select(p => p.MollieMandateId)
             .FirstOrDefaultAsync(ct);
 

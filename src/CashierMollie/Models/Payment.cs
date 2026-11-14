@@ -59,6 +59,13 @@ public class Payment<TKey> : IHasTimestamps where TKey : IEquatable<TKey>
     /// </summary>
     public decimal CreditNet { get; set; }
 
+    /// <summary>
+    /// For a payment created by <see cref="Interfaces.ICashierService{TKey}.PayOutstandingAsync"/>:
+    /// the failed cycle payment it settles. A failed cycle payment counts as outstanding until a
+    /// paid payment points at it here.
+    /// </summary>
+    public long? SettlesPaymentId { get; set; }
+
     /// <summary>The mandate ID acquired from this payment (set after successful first payment).</summary>
     [MaxLength(255)]
     public string? MollieMandateId { get; set; }

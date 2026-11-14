@@ -161,6 +161,7 @@ public static class CashierModelBuilderExtensions
             entity.Property(e => e.AmountNet).HasPrecision(MoneyPrecision, MoneyScale);
             entity.Property(e => e.TaxRatePercent).HasPrecision(MoneyPrecision, MoneyScale);
             entity.Property(e => e.CreditNet).HasPrecision(MoneyPrecision, MoneyScale);
+            entity.HasIndex(e => e.SettlesPaymentId);
         });
 
         modelBuilder.Entity<Subscription<TKey>>(entity =>

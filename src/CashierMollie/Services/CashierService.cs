@@ -98,6 +98,30 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
         => _engine.RepriceAsync(ownerId, ct);
 
     /// <inheritdoc />
+    public async Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, string name,
+        string? redirectUrl = null, CancellationToken ct = default)
+    {
+        var sub = await GetSubscriptionOrThrow(owner, name, ct);
+        return await _engine.PayOutstandingAsync(owner, sub, redirectUrl, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(IBillable<TKey> owner, string name,
+        CancellationToken ct = default)
+    {
+        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        return await _engine.CancelImmediatelyWithRefundAsync(sub, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Payment<TKey>>> GetOutstandingPaymentsAsync(IBillable<TKey> owner, string name,
+        CancellationToken ct = default)
+    {
+        var sub = await GetSubscriptionOrThrow(owner, name, ct);
+        return await NativeSubscriptions.OutstandingAsync(_db, sub.Id, ct);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);

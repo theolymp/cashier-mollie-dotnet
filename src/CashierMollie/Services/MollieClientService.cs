@@ -122,6 +122,12 @@ public class MollieClientService : IMollieClientService
         return await _subscriptionClient.UpdateSubscriptionAsync(customerId, subscriptionId, request, ct);
     }
 
+    /// <inheritdoc />
+    public Task<SubscriptionResponse> UpdateSubscriptionMandateAsync(string customerId, string subscriptionId,
+        string mandateId, CancellationToken ct)
+        => _subscriptionClient.UpdateSubscriptionAsync(customerId, subscriptionId,
+            new SubscriptionUpdateRequest { MandateId = mandateId }, ct);
+
     public Task<MandateResponse> GetMandateAsync(string customerId, string mandateId, CancellationToken ct)
         => _mandateClient.GetMandateAsync(customerId, mandateId, cancellationToken: ct);
 

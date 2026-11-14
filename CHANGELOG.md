@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added -- payment default and termination for good cause
+- **A failed cycle payment locks the subscription.** It becomes `past_due` (not active) and
+  `SubscriptionPastDue<TKey>` is dispatched. `ICashierService.PayOutstandingAsync` creates a
+  checkout for the oldest failed amount, as a first payment with a new mandate; once paid, the
+  Mollie subscription is moved to that mandate, and when nothing is outstanding the subscription is
+  active again (`SubscriptionPaymentRecovered<TKey>`). A grace period is the consumer's decision.
+- The lock is derived from the stored payments on every webhook, not from the status change, so a
+  retried webhook still locks or unlocks. A SEPA debit reported paid and failing later loses its
+  `PaidAt` and becomes outstanding and payable. A failed checkout of a subscription that never
+  started is no debt. A paid settlement makes the settled cycle the paid one. A second
+  `PayOutstandingAsync` hands out the open checkout instead of a second one.
+  `GetOutstandingPaymentsAsync` lists what is owed.
+- **`ICashierService.CancelImmediatelyWithRefundAsync`** ends a subscription now and refunds the
+  unused whole days of its paid cycle; the `EarlyEndResult` reports anything that could not be
+  refunded instead of throwing after the end. An ordinary cancellation still refunds nothing.
+- Schema: `cashier_payments.SettlesPaymentId` (`bigint`, null, indexed).
+
 ## [0.6.0-beta.1] - 2026-11-14
 
 Prerelease so that a consumer can integrate the 0.6.0 billing before it is final. 0.6.0 itself

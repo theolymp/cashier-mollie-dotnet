@@ -35,6 +35,18 @@ public record SubscriptionPlanSwapped<TKey>(Subscription<TKey> Subscription, str
 public record SubscriptionUpgraded<TKey>(UpgradeResult<TKey> Result, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
+/// <summary>
+/// Dispatched when a cycle payment failed and the subscription is now <c>past_due</c>: not active
+/// until the outstanding amount is paid (see <see cref="Interfaces.ICashierService{TKey}.PayOutstandingAsync"/>).
+/// </summary>
+public record SubscriptionPastDue<TKey>(Subscription<TKey> Subscription, Payment<TKey> FailedPayment, TKey OwnerId)
+    where TKey : IEquatable<TKey>;
+
+/// <summary>Dispatched when the last outstanding amount of a <c>past_due</c> subscription was paid
+/// and it is active again.</summary>
+public record SubscriptionPaymentRecovered<TKey>(Subscription<TKey> Subscription, Payment<TKey> Payment, TKey OwnerId)
+    where TKey : IEquatable<TKey>;
+
 // ── Subscription events ─────────────────────────────────────────────
 
 /// <summary>Dispatched when a subscription's quantity is updated.</summary>

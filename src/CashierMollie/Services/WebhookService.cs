@@ -47,6 +47,11 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             + "it at Mollie again. The payment is recorded and may need a refund.")]
     private partial void LogChargedAfterEnd(long subscriptionId, string paymentId);
 
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Subscription {SubscriptionId}: the outstanding amount was paid, but the Mollie "
+            + "subscription could not be moved to the new mandate; its next charge may fail again.")]
+    private partial void LogMandateSwitchFailed(long subscriptionId, Exception exception);
+
     [LoggerMessage(Level = LogLevel.Error,
         Message = "Could not cancel ended subscription {SubscriptionId} at Mollie again.")]
     private partial void LogCancelAgainFailed(long subscriptionId, Exception exception);
@@ -94,6 +99,15 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             // already saved by then.
             if (molliePayment.Status == "paid")
                 await EnsureRegisteredAtMollieAsync(localPayment, ct);
+
+            // The same goes for the payment-default state: it is derived from what is stored, so a
+            // retry after a failure between the two saves still locks or unlocks correctly.
+            if (localPayment.SubscriptionId.HasValue
+                && await _db.Subscriptions.FindAsync([localPayment.SubscriptionId.Value], ct) is { } retried)
+            {
+                await ReconcileDefaultAsync(retried, localPayment, ct);
+            }
+
             return;
         }
 
@@ -105,9 +119,12 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         {
             localPayment.PaidAt = DateTimeOffset.UtcNow;
         }
-        else if (molliePayment.Status is "failed" or "canceled" or "expired")
+        else if (NativeSubscriptions.IsFailedStatus(molliePayment.Status))
         {
             localPayment.FailedAt = DateTimeOffset.UtcNow;
+            // A SEPA debit can be reported paid and fail days later. It brought in no money, so it
+            // must not keep counting as paid anywhere.
+            localPayment.PaidAt = null;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -159,6 +176,19 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
             await _db.SaveChangesAsync(ct);
         }
 
+        // A first payment that fails while the subscription is still pending is not a debt: the
+        // subscription never started. Its net is cleared so it is never counted as outstanding.
+        if (subscription?.Status == SubscriptionStatus.Pending && NativeSubscriptions.IsFailedStatus(molliePayment.Status)
+            && localPayment.AmountNet != null)
+        {
+            localPayment.AmountNet = null;
+            localPayment.TaxRatePercent = null;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        if (subscription != null)
+            await ReconcileDefaultAsync(subscription, localPayment, ct);
+
         // Check for chargebacks
         if (mollieChargebackAmount != null && mollieChargebackAmount > localPayment.AmountChargedBack)
         {
@@ -196,6 +226,63 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
                 await _eventDispatcher.DispatchAsync(
                     new FirstPaymentFailed<TKey>(localPayment, localPayment.OwnerId), ct);
             }
+        }
+    }
+
+    /// <summary>
+    /// Locks or unlocks a priced subscription from its stored payments, never from the status
+    /// change alone: <c>past_due</c> while a failed priced payment is not settled, active again once
+    /// none is. A paid settlement also moves the paid cycle forward to the one it settles, and moves
+    /// the Mollie subscription to the mandate it was paid with.
+    /// </summary>
+    private async Task ReconcileDefaultAsync(Subscription<TKey> subscription, Payment<TKey> payment, CancellationToken ct)
+    {
+        if (!NativeSubscriptions.IsPriced(subscription)
+            || (subscription.Status != SubscriptionStatus.Active && subscription.Status != SubscriptionStatus.PastDue))
+        {
+            return;
+        }
+
+        if (payment.Status == "paid" && payment.SettlesPaymentId.HasValue)
+        {
+            var settled = await _db.Payments.FindAsync([payment.SettlesPaymentId.Value], ct);
+            if (settled?.AmountNet != null
+                && (subscription.CycleStartedAt == null || settled.CreatedAt > subscription.CycleStartedAt))
+            {
+                subscription.CycleStartedAt = settled.CreatedAt;
+                subscription.CycleValueNet = settled.AmountNet + settled.CreditNet;
+                await _db.SaveChangesAsync(ct);
+            }
+
+            if (subscription.Status == SubscriptionStatus.PastDue && !string.IsNullOrEmpty(payment.MollieMandateId)
+                && NativeSubscriptions.IsRegistered(subscription) && !string.IsNullOrEmpty(subscription.MollieCustomerId))
+            {
+                try
+                {
+                    await _mollieClient.UpdateSubscriptionMandateAsync(subscription.MollieCustomerId,
+                        subscription.MollieSubscriptionId!, payment.MollieMandateId, ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    LogMandateSwitchFailed(subscription.Id, ex);
+                }
+            }
+        }
+
+        var outstanding = await NativeSubscriptions.OutstandingAsync(_db, subscription.Id, ct);
+        if (outstanding.Count > 0 && subscription.Status == SubscriptionStatus.Active)
+        {
+            subscription.Status = SubscriptionStatus.PastDue;
+            await _db.SaveChangesAsync(ct);
+            await _eventDispatcher.DispatchAsync(
+                new SubscriptionPastDue<TKey>(subscription, outstanding[^1], subscription.OwnerId), ct);
+        }
+        else if (outstanding.Count == 0 && subscription.Status == SubscriptionStatus.PastDue)
+        {
+            subscription.Status = SubscriptionStatus.Active;
+            await _db.SaveChangesAsync(ct);
+            await _eventDispatcher.DispatchAsync(
+                new SubscriptionPaymentRecovered<TKey>(subscription, payment, subscription.OwnerId), ct);
         }
     }
 

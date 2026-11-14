@@ -702,6 +702,292 @@ public sealed class NativeBillingTests : IDisposable
         await _mollie.Received(1).CancelSubscriptionAsync("cst_1", "sub_reg", Arg.Any<CancellationToken>());
     }
 
+    // ── Payment default (AGB §6/§7, compliance (c)): lock, settle, unlock ──
+
+    private async Task<Payment<string>> FailCycle(Subscription<string> sub, string paymentId = "tr_cycle")
+    {
+        _mollie.GetPaymentAsync(paymentId, Arg.Any<CancellationToken>())
+            .Returns(MolliePayment(paymentId, "failed", "mdt_1", "sub_reg", 11.89m));
+        await _webhook.HandlePaymentAsync(paymentId);
+        return await _db.Payments.SingleAsync(p => p.MolliePaymentId == paymentId);
+    }
+
+    [Fact]
+    public async Task AFailedCyclePayment_PutsTheSubscriptionPastDue_SoItIsNoLongerActive()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+
+        var failed = await FailCycle(sub);
+
+        Assert.Equal(SubscriptionStatus.PastDue, sub.Status);
+        Assert.False(sub.IsActive());
+        await _events.Received(1).DispatchAsync(
+            Arg.Is<SubscriptionPastDue<string>>(e => e.FailedPayment.Id == failed.Id), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PayOutstanding_ChecksOutTheFailedAmount_AndUnlocksWhenPaid_OnTheNewMandate()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        var failed = await FailCycle(sub);
+        var checkout = MolliePayment("tr_settle", "open");
+        var links = Substitute.For<PaymentResponseLinks>();
+        var href = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+        href.Href = "https://mollie.test/checkout/settle";
+        links.Checkout = href;
+        checkout.Links = links;
+        _mollie.CreateFirstPaymentAsync(default!, default, default!, default!, default!, default!, default, default)
+            .ReturnsForAnyArgs(Task.FromResult(checkout));
+
+        var result = await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1", "mdt_1"), sub);
+
+        Assert.Equal("https://mollie.test/checkout/settle", result.CheckoutUrl);
+        Assert.Equal(11.89m, result.Amount);
+        Assert.Equal(0, result.RemainingAfterThis);
+        await _mollie.Received(1).CreateFirstPaymentAsync("cst_1", 11.89m, "EUR", Arg.Any<string>(),
+            Arg.Any<string>(), WebhookUrl, Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>());
+        var settlement = await _db.Payments.SingleAsync(p => p.MolliePaymentId == "tr_settle");
+        Assert.Equal(failed.Id, settlement.SettlesPaymentId);
+
+        _mollie.GetPaymentAsync("tr_settle", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_settle", "paid", "mdt_new"));
+        await _webhook.HandlePaymentAsync("tr_settle");
+
+        Assert.Equal(SubscriptionStatus.Active, sub.Status);
+        await _mollie.Received(1).UpdateSubscriptionMandateAsync("cst_1", "sub_reg", "mdt_new", Arg.Any<CancellationToken>());
+        await _events.Received(1).DispatchAsync(Arg.Any<SubscriptionPaymentRecovered<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    // A later cycle Mollie charged successfully does not pay the one that failed: the lock stays
+    // until every failed cycle is settled. And a failed settlement attempt is not a second debt.
+    public async Task TheLockHoldsUntilEveryFailedCycleIsSettled()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        await FailCycle(sub, "tr_c1");
+
+        _mollie.GetPaymentAsync("tr_c2", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_c2", "paid", "mdt_1", "sub_reg", 11.89m));
+        await _webhook.HandlePaymentAsync("tr_c2");
+        Assert.Equal(SubscriptionStatus.PastDue, sub.Status);
+
+        _mollie.CreateFirstPaymentAsync(default!, default, default!, default!, default!, default!, default, default)
+            .ReturnsForAnyArgs(_ =>
+            {
+                var p = MolliePayment("tr_s1", "open");
+                p.Links = Substitute.For<PaymentResponseLinks>();
+                p.Links.Checkout = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+                p.Links.Checkout.Href = "https://mollie.test/c";
+                return Task.FromResult(p);
+            });
+        await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub);
+        _mollie.GetPaymentAsync("tr_s1", Arg.Any<CancellationToken>()).Returns(MolliePayment("tr_s1", "failed"));
+        await _webhook.HandlePaymentAsync("tr_s1");
+
+        Assert.Equal(SubscriptionStatus.PastDue, sub.Status);
+        // Through the library's own query, not a re-implementation of it.
+        Assert.Single(await Cashier().GetOutstandingPaymentsAsync(new TestBillable("u1", "cst_1"), "pro"));
+    }
+
+    private CashierService<string> Cashier() => new(_db, _engine, _mollie, _events, Options.Create(_options),
+        NullLogger<CashierService<string>>.Instance);
+
+    private void CheckoutReturns(string id, string href) =>
+        _mollie.CreateFirstPaymentAsync(default!, default, default!, default!, default!, default!, default, default)
+            .ReturnsForAnyArgs(_ =>
+            {
+                var p = MolliePayment(id, "open");
+                p.Links = Substitute.For<PaymentResponseLinks>();
+                p.Links.Checkout = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+                p.Links.Checkout.Href = href;
+                return Task.FromResult(p);
+            });
+
+    [Fact]
+    // Review F2: a SEPA debit reported paid and failing days later. It must count as outstanding
+    // (payable), not lock the subscription with nothing to pay.
+    public async Task APaymentThatIsPaidAndThenFails_IsOutstandingAndPayable()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        _mollie.GetPaymentAsync("tr_sepa", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_sepa", "paid", "mdt_1", "sub_reg", 11.89m));
+        await _webhook.HandlePaymentAsync("tr_sepa");
+        Assert.Equal(SubscriptionStatus.Active, sub.Status);
+
+        _mollie.GetPaymentAsync("tr_sepa", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_sepa", "failed", "mdt_1", "sub_reg", 11.89m));
+        await _webhook.HandlePaymentAsync("tr_sepa");
+
+        Assert.Equal(SubscriptionStatus.PastDue, sub.Status);
+        var payment = await _db.Payments.SingleAsync(p => p.MolliePaymentId == "tr_sepa");
+        Assert.Null(payment.PaidAt);
+        CheckoutReturns("tr_settle", "https://mollie.test/c");
+        var result = await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub);
+        Assert.Equal(11.89m, result.Amount);
+    }
+
+    [Fact]
+    // Review F1: the lock is derived from stored state, so a webhook retry that sees no status
+    // change still locks. Simulated by a failure whose status was saved but whose lock was not.
+    public async Task AWebhookRetry_StillLocks_WhenTheFirstAttemptSavedOnlyTheStatus()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        _db.Payments.Add(new Payment<string>
+        {
+            OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "tr_half", Status = "failed",
+            FailedAt = DateTimeOffset.UtcNow, Amount = 11.89m, AmountNet = 9.99m, TaxRatePercent = 19m,
+        });
+        await _db.SaveChangesAsync();
+        Assert.Equal(SubscriptionStatus.Active, sub.Status);
+        _mollie.GetPaymentAsync("tr_half", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_half", "failed", "mdt_1", "sub_reg", 11.89m));
+
+        await _webhook.HandlePaymentAsync("tr_half");
+
+        Assert.Equal(SubscriptionStatus.PastDue, sub.Status);
+    }
+
+    [Fact]
+    // Review F3: a second call hands out the open checkout again instead of a second one.
+    public async Task PayOutstanding_Twice_ReusesTheOpenCheckout()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        await FailCycle(sub);
+        CheckoutReturns("tr_settle", "https://mollie.test/first");
+        var first = await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub);
+        var open = MolliePayment("tr_settle", "open");
+        open.Links = Substitute.For<PaymentResponseLinks>();
+        open.Links.Checkout = Substitute.For<Mollie.Api.Models.Url.UrlObjectLink<PaymentResponse>>();
+        open.Links.Checkout.Href = "https://mollie.test/first";
+        _mollie.GetPaymentAsync("tr_settle", Arg.Any<CancellationToken>()).Returns(open);
+
+        var second = await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub);
+
+        Assert.Equal(first.CheckoutUrl, second.CheckoutUrl);
+        await _mollie.ReceivedWithAnyArgs(1).CreateFirstPaymentAsync(
+            default!, default, default!, default!, default!, default!, default, default);
+    }
+
+    [Fact]
+    // Review F6: the engine checks that the subscription is the owner's.
+    public async Task PayOutstanding_ForAnotherOwnersSubscription_Refuses()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 30);
+        await FailCycle(sub);
+        await Assert.ThrowsAsync<CashierException>(() =>
+            _engine.PayOutstandingAsync(new TestBillable("u2", "cst_2"), sub));
+    }
+
+    [Fact]
+    // A failed checkout while the subscription is still pending is not a debt: it never started,
+    // and a later successful checkout must not be locked by it.
+    public async Task AFailedFirstCheckout_IsNotADebt()
+    {
+        var owner = new TestBillable("u1", "cst_1");
+        await _engine.CreateSubscriptionAsync(owner, "pro", "pro", new SubscriptionOptions());
+        _mollie.GetPaymentAsync("tr_first", Arg.Any<CancellationToken>()).Returns(MolliePayment("tr_first", "expired"));
+        await _webhook.HandlePaymentAsync("tr_first");
+
+        var sub = await _db.Subscriptions.SingleAsync();
+        sub.Status = SubscriptionStatus.Active; // as after a second, successful checkout
+        await _db.SaveChangesAsync();
+        Assert.Empty(await Cashier().GetOutstandingPaymentsAsync(owner, "pro"));
+    }
+
+    [Fact]
+    // Review F5: a settled cycle is the paid cycle afterwards, so an early end refunds from it.
+    public async Task AfterASettlement_AnEarlyEndRefundsTheSettledCycle()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 40);
+        var failed = await FailCycle(sub);
+        CheckoutReturns("tr_settle", "https://mollie.test/c");
+        await _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub);
+        _mollie.GetPaymentAsync("tr_settle", Arg.Any<CancellationToken>())
+            .Returns(MolliePayment("tr_settle", "paid", "mdt_new"));
+        await _webhook.HandlePaymentAsync("tr_settle");
+
+        Assert.Equal(failed.CreatedAt, sub.CycleStartedAt);
+        var result = await _engine.CancelImmediatelyWithRefundAsync(sub);
+        Assert.True(result.RemainingDays >= 29);
+        Assert.Equal(0m, result.UnrefundedNet);
+    }
+
+    [Fact]
+    // Review F7: a refund that fails after the end is reported, not thrown, and not lost.
+    public async Task CancelImmediatelyWithRefund_AFailedRefund_IsReportedAsOwed()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 10.4);
+        _refunds.RefundAsync(default!, default, default, default)
+            .ReturnsForAnyArgs(Task.FromException<Refund<string>>(new HttpRequestException("refused")));
+
+        var result = await _engine.CancelImmediatelyWithRefundAsync(sub);
+
+        Assert.Equal(6.33m, result.UnrefundedNet);
+        Assert.Equal(0m, result.RefundedGross);
+        await Assert.ThrowsAsync<CashierException>(() => _engine.CancelImmediatelyWithRefundAsync(sub));
+    }
+
+    [Fact]
+    // The outstanding query on a relational provider. InMemory accepts what SQLite refuses, such
+    // as ordering by a DateTimeOffset.
+    public async Task OutstandingPayments_TranslateOnSqlite()
+    {
+        using var database = new SqliteTestDatabase<string>();
+        using var db = database.NewContext();
+        var sub = new Subscription<string> { OwnerId = "u1", Name = "pro", Plan = "pro", Status = SubscriptionStatus.PastDue, PriceNet = 9.99m };
+        db.Subscriptions.Add(sub);
+        await db.SaveChangesAsync();
+        db.Payments.AddRange(
+            new Payment<string> { OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "f1", Status = "failed", Amount = 1m, AmountNet = 1m },
+            new Payment<string> { OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "f2", Status = "expired", Amount = 2m, AmountNet = 2m });
+        await db.SaveChangesAsync();
+        var f1 = await db.Payments.SingleAsync(p => p.MolliePaymentId == "f1");
+        db.Payments.Add(new Payment<string> { OwnerId = "u1", SubscriptionId = sub.Id, MolliePaymentId = "s1", Status = "paid", Amount = 1m, AmountNet = 1m, SettlesPaymentId = f1.Id });
+        await db.SaveChangesAsync();
+        var cashier = new CashierService<string>(db, _engine, _mollie, _events, Options.Create(_options),
+            NullLogger<CashierService<string>>.Instance);
+
+        var outstanding = await cashier.GetOutstandingPaymentsAsync(new TestBillable("u1"), "pro");
+
+        Assert.Equal("f2", Assert.Single(outstanding).MolliePaymentId);
+    }
+
+    [Fact]
+    public async Task PayOutstanding_OnASubscriptionThatIsNotPastDue_Refuses()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 3);
+        await Assert.ThrowsAsync<CashierException>(() =>
+            _engine.PayOutstandingAsync(new TestBillable("u1", "cst_1"), sub));
+    }
+
+    // ── Termination for good cause: end now, refund the unused days ──
+
+    [Fact]
+    // 10.4 days into a 9.99 cycle: 19 whole days left, 6.33 net, x 1.19 = 7.5327 -> 7.53 refunded.
+    public async Task CancelImmediatelyWithRefund_StopsMollie_AndRefundsTheUnusedDays()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 10.4);
+
+        var result = await _engine.CancelImmediatelyWithRefundAsync(sub);
+
+        Assert.Equal(19, result.RemainingDays);
+        Assert.Equal(6.33m, result.ValueNet);
+        Assert.Equal(7.53m, result.RefundedGross);
+        await _mollie.Received(1).CancelSubscriptionAsync("cst_1", "sub_reg", Arg.Any<CancellationToken>());
+        await _refunds.Received(1).RefundAsync(Arg.Is<Payment<string>>(p => p.SubscriptionId == sub.Id), 7.53m,
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        Assert.Equal(SubscriptionStatus.Cancelled, sub.Status);
+    }
+
+    [Fact]
+    // An ordinary cancellation refunds nothing; it runs to the end of the paid cycle (AGB §7).
+    public async Task AnOrdinaryCancel_RefundsNothing()
+    {
+        var sub = await SeedRegistered("pro", 9.99m, startedDaysAgo: 10.4);
+        await _engine.CancelSubscriptionAsync(sub, immediately: false);
+        await _refunds.DidNotReceiveWithAnyArgs().RefundAsync(default!, default, default, default);
+    }
+
     [Fact]
     // A refused mandate must leave the replaced subscription running: the charge is the first
     // call to Mollie, before anything is ended.
