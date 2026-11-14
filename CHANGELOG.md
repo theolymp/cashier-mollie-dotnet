@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.2] - 2026-11-14
+
 ### Added -- payment default and termination for good cause
 - **A failed cycle payment locks the subscription.** It becomes `past_due` (not active) and
   `SubscriptionPastDue<TKey>` is dispatched. `ICashierService.PayOutstandingAsync` creates a
