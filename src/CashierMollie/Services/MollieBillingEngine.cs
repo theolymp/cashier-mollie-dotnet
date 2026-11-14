@@ -1,30 +1,31 @@
 using CashierMollie.Data;
 using CashierMollie.Events;
+using CashierMollie.Exceptions;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CashierMollie.Services;
 
 /// <summary>
-/// The default engine, named for Mollie's native Subscription API.
-/// <para>
-/// ⚠️ <b>It does not currently create a Mollie subscription.</b> Measured 2026-10-26:
-/// <c>MollieSubscriptionId</c> has no assignment anywhere in this library and
-/// <c>IMollieClientService.CreateSubscriptionAsync</c> has no caller, so the cancel-at-Mollie and
-/// update-at-Mollie blocks below — both guarded on that field being set — are unreachable. What
-/// happens today is: a local subscription row, a first payment for
-/// <c>PaymentMethodUpdateAmount</c> to acquire the mandate, and activation by webhook. Nothing
-/// recurring is registered with Mollie, so nothing recurring is charged. The previous sentence here
-/// said this engine "delegates subscription CRUD to the Mollie API"; it does not.
-/// </para>
-/// <para>
-/// Consequences for the features that need an amount: a coupon redemption is recorded but cannot
-/// reduce a charge that is never made, and proration throws. Use the Managed engine where recurring
-/// money has to move. This is tracked as the highest-priority item in BACKLOG.md.
-/// </para>
+/// The default engine: Mollie owns the recurring cycle. Since 0.6.0 a subscription with a price
+/// is registered at Mollie, which charges its gross amount every
+/// <see cref="CashierMollieOptions.CycleDays"/> days; before that this engine registered nothing
+/// and nothing recurring was ever charged.
 /// </summary>
+/// <remarks>
+/// <para>The price comes from <see cref="IPlanPriceResolver{TKey}"/> when a subscription is
+/// created. Without a mandate the first cycle is paid through a Mollie checkout and the webhook
+/// registers the subscription once that payment is paid. With a mandate the subscription is
+/// active at once, the first cycle is charged from the mandate, and Mollie takes over one cycle
+/// later. A trial charges nothing up front; Mollie's first charge falls on the trial's end.</para>
+/// <para>Mandate-only subscriptions and subscriptions created before 0.6.0 carry no price and stay
+/// purely local, exactly as before.</para>
+/// <para>Coupons are still recorded without reducing anything: Mollie charges one constant amount,
+/// and a discount on it is not built.</para>
+/// </remarks>
 /// <typeparam name="TKey">The type of the owner's primary key.</typeparam>
 public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey : IEquatable<TKey>
 {
@@ -33,6 +34,8 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
     private readonly ICouponService<TKey> _coupons;
+    private readonly IPlanPriceResolver<TKey> _prices;
+    private readonly IRefundService<TKey> _refunds;
     private readonly ILogger<MollieBillingEngine<TKey>> _logger;
 
     /// <summary>
@@ -44,6 +47,8 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
     /// <param name="options">CashierMollie configuration options.</param>
     /// <param name="coupons">Coupon validation and redemption. Required rather than optional: an
     /// engine that silently cannot apply a coupon is the defect this parameter exists to end.</param>
+    /// <param name="prices">Resolves a plan id to the price Mollie charges.</param>
+    /// <param name="refunds">Refunds the surplus credit of an upgrade.</param>
     /// <param name="logger">The logger instance.</param>
     public MollieBillingEngine(
         CashierDbContext<TKey> db,
@@ -51,6 +56,8 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         ICashierEventDispatcher eventDispatcher,
         IOptions<CashierMollieOptions> options,
         ICouponService<TKey> coupons,
+        IPlanPriceResolver<TKey> prices,
+        IRefundService<TKey> refunds,
         ILogger<MollieBillingEngine<TKey>> logger)
     {
         _db = db;
@@ -58,6 +65,8 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
         _coupons = coupons;
+        _prices = prices;
+        _refunds = refunds;
         _logger = logger;
     }
 
@@ -68,9 +77,14 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
     // and it names the code. A startup warning about a feature nobody used would be wallpaper.
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Coupon {Code} was redeemed for subscription {SubscriptionName}, but this engine "
-            + "registers no recurring charge with Mollie, so the redemption cannot reduce anything. "
+            + "charges Mollie's constant amount, so the redemption cannot reduce anything. "
             + "Use the Managed engine for discounted recurring billing.")]
     private partial void LogCouponRecordedButNoRecurringCharge(string code, string subscriptionName);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Upgrade to subscription {SubscriptionId}: a surplus of {Amount} (net) could not be "
+            + "refunded because the payments behind it have no refundable amount left. Refund it manually.")]
+    private partial void LogUnrefundedSurplus(long subscriptionId, decimal amount);
 
     /// <inheritdoc />
     public async Task<SubscriptionResult<TKey>> CreateSubscriptionAsync(
@@ -78,6 +92,12 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         SubscriptionOptions options, CancellationToken ct = default)
     {
         ProrationSupport.ThrowIfRequested(options.Prorate);
+
+        // Resolved before anything is written, so an unknown plan or a foreign currency leaves
+        // no half-created subscription behind. A mandate-only subscription has no price.
+        PlanPrice? price = options.MandateOnly
+            ? null
+            : await NativeSubscriptions.ResolveCheckedAsync(_prices, _options, owner.Id, plan, ct);
 
         // Ensure Mollie customer exists
         if (string.IsNullOrEmpty(owner.MollieCustomerId))
@@ -97,6 +117,9 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             Quantity = options.Quantity > 1 ? options.Quantity : null,
         };
 
+        if (price != null)
+            NativeSubscriptions.ApplyPrice(subscription, price);
+
         if (options.TrialDays > 0)
             subscription.TrialEndsAt = DateTimeOffset.UtcNow.AddDays(options.TrialDays);
 
@@ -111,90 +134,165 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         if (!string.IsNullOrWhiteSpace(options.CouponCode))
         {
             await _coupons.RedeemAsync(owner, options.CouponCode, name, ct);
-        }
 
-        if (!string.IsNullOrWhiteSpace(options.CouponCode))
-        {
-            // Said at the moment it bites, not only in the documentation: this engine registers no
-            // recurring charge, so there is nothing for the redemption to reduce.
+            // Said at the moment it bites, not only in the documentation: Mollie charges one
+            // constant amount, so there is nothing for the redemption to reduce.
             LogCouponRecordedButNoRecurringCharge(options.CouponCode, name);
         }
 
-        string? checkoutUrl = null;
-        bool requiresAction = false;
+        bool hasMandate = !string.IsNullOrEmpty(owner.MollieMandateId);
 
-        if (string.IsNullOrEmpty(owner.MollieMandateId) && !options.MandateOnly)
+        if (price == null)
         {
-            // First payment flow — redirect to Mollie checkout to acquire a mandate
+            // Mandate-only: unchanged since 0.5.0. Local and active, nothing registered at Mollie.
+            await ActivateAsync(subscription, owner.Id, ct);
+            return new SubscriptionResult<TKey>(subscription, null, false);
+        }
+
+        bool onTrial = subscription.TrialEndsAt.HasValue;
+
+        if (!hasMandate)
+        {
+            // Checkout. On a trial it only acquires the mandate; otherwise it pays the first
+            // cycle. Either way the webhook activates the subscription and registers it at
+            // Mollie once this payment is paid.
+            decimal amount = onTrial ? _options.PaymentMethodUpdateAmount : price.Gross;
             var molliePayment = await _mollieClient.CreateFirstPaymentAsync(
-                owner.MollieCustomerId, _options.PaymentMethodUpdateAmount, _options.Currency,
-                $"First payment for {plan}",
+                owner.MollieCustomerId, amount, _options.Currency,
+                onTrial ? $"Payment method for {price.Description}" : price.Description,
                 _options.FirstPaymentRedirectUrl,
                 _options.EffectiveWebhookUrl, options.Metadata, ct);
 
-            var localPayment = new Payment<TKey>
+            _db.Payments.Add(new Payment<TKey>
             {
                 OwnerId = owner.Id,
                 SubscriptionId = subscription.Id,
                 MolliePaymentId = molliePayment.Id,
                 Status = molliePayment.Status ?? "open",
-                Amount = _options.PaymentMethodUpdateAmount,
+                Amount = amount,
                 Currency = _options.Currency,
-            };
-            _db.Payments.Add(localPayment);
+                AmountNet = onTrial ? null : price.Net,
+                TaxRatePercent = onTrial ? null : price.TaxRatePercent,
+            });
             await _db.SaveChangesAsync(ct);
 
-            checkoutUrl = molliePayment.Links?.Checkout?.Href;
-            requiresAction = true;
+            return new SubscriptionResult<TKey>(subscription, molliePayment.Links?.Checkout?.Href, true);
+        }
+
+        string mandateId = owner.MollieMandateId!;
+        var now = DateTimeOffset.UtcNow;
+
+        if (onTrial)
+        {
+            // Nothing to charge now; Mollie's first charge is the trial's end.
+            await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
+                mandateId, subscription.TrialEndsAt!.Value, ct);
         }
         else
         {
-            // Direct activation — mandate exists or mandate-only mode
-            subscription.Status = SubscriptionStatus.Active;
-            subscription.CycleStartedAt = DateTimeOffset.UtcNow;
-            await _db.SaveChangesAsync(ct);
+            // The first cycle from the mandate, now; Mollie charges from the next cycle on.
+            // Active at once rather than when the payment settles: a SEPA debit can take days,
+            // and a failure arrives as OrderPaymentFailed through the webhook like any other.
+            var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                owner.MollieCustomerId, mandateId, price.Gross, _options.Currency,
+                price.Description, _options.EffectiveWebhookUrl, options.Metadata, ct);
 
-            await _eventDispatcher.DispatchAsync(
-                new SubscriptionCreated<TKey>(subscription, owner.Id), ct);
+            _db.Payments.Add(new Payment<TKey>
+            {
+                OwnerId = owner.Id,
+                SubscriptionId = subscription.Id,
+                MolliePaymentId = molliePayment.Id,
+                Status = molliePayment.Status ?? "pending",
+                Amount = price.Gross,
+                Currency = _options.Currency,
+                AmountNet = price.Net,
+                TaxRatePercent = price.TaxRatePercent,
+                MollieMandateId = mandateId,
+            });
+
+            subscription.CycleStartedAt = now;
+            subscription.CycleValueNet = price.Net;
+            await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
+                mandateId, now.AddDays(_options.CycleDays), ct);
         }
 
-        return new SubscriptionResult<TKey>(subscription, checkoutUrl, requiresAction);
+        subscription.Status = SubscriptionStatus.Active;
+        await _db.SaveChangesAsync(ct);
+        await _eventDispatcher.DispatchAsync(new SubscriptionCreated<TKey>(subscription, owner.Id), ct);
+
+        return new SubscriptionResult<TKey>(subscription, null, false);
+    }
+
+    private async Task ActivateAsync(Subscription<TKey> subscription, TKey ownerId, CancellationToken ct)
+    {
+        subscription.Status = SubscriptionStatus.Active;
+        subscription.CycleStartedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        await _eventDispatcher.DispatchAsync(new SubscriptionCreated<TKey>(subscription, ownerId), ct);
     }
 
     /// <inheritdoc />
     public async Task CancelSubscriptionAsync(Subscription<TKey> subscription, bool immediately,
         CancellationToken ct = default)
     {
+        var now = DateTimeOffset.UtcNow;
         if (immediately)
         {
-            subscription.EndsAt = DateTimeOffset.UtcNow;
+            subscription.EndsAt = now;
+        }
+        else if (NativeSubscriptions.IsPriced(subscription))
+        {
+            // A priced subscription ends with what was paid for: the running cycle, or the trial.
+            subscription.EndsAt = subscription.CycleStartedAt?.AddDays(_options.CycleDays)
+                ?? subscription.TrialEndsAt
+                ?? now;
         }
         else
         {
             int graceDays = _options.GracePeriodDays;
             subscription.EndsAt = subscription.CycleStartedAt?.AddDays(graceDays)
-                ?? DateTimeOffset.UtcNow.AddDays(graceDays);
+                ?? now.AddDays(graceDays);
         }
+
+        // At Mollie first: if that call fails, nothing local claims a cancellation that Mollie
+        // would keep charging through.
+        await CancelAtMollieAsync(subscription, ct);
 
         subscription.Status = SubscriptionStatus.Cancelled;
         await _db.SaveChangesAsync(ct);
 
-        // Cancel at Mollie if a remote subscription exists
+        await _eventDispatcher.DispatchAsync(
+            new SubscriptionCancelled<TKey>(subscription, subscription.OwnerId), ct);
+    }
+
+    private async Task CancelAtMollieAsync(Subscription<TKey> subscription, CancellationToken ct)
+    {
         if (!string.IsNullOrEmpty(subscription.MollieCustomerId) &&
             !string.IsNullOrEmpty(subscription.MollieSubscriptionId))
         {
             await _mollieClient.CancelSubscriptionAsync(
                 subscription.MollieCustomerId, subscription.MollieSubscriptionId, ct);
+            // A cancelled Mollie subscription cannot be revived; resuming registers a new one.
+            subscription.MollieSubscriptionId = null;
         }
-
-        await _eventDispatcher.DispatchAsync(
-            new SubscriptionCancelled<TKey>(subscription, subscription.OwnerId), ct);
     }
 
     /// <inheritdoc />
     public async Task ResumeSubscriptionAsync(Subscription<TKey> subscription,
         CancellationToken ct = default)
     {
+        if (NativeSubscriptions.IsPriced(subscription)
+            && string.IsNullOrEmpty(subscription.MollieSubscriptionId)
+            && subscription.EndsAt > DateTimeOffset.UtcNow)
+        {
+            // Mollie's next charge is the day the cancellation would have taken effect.
+            string mandateId = await NativeSubscriptions.LatestMandateAsync(_db, subscription.OwnerId, ct)
+                ?? throw new CashierException(
+                    "Cannot resume: the owner has no mandate for Mollie to charge the next cycle from.");
+            await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
+                mandateId, subscription.EndsAt.Value, ct);
+        }
+
         subscription.EndsAt = null;
         subscription.Status = SubscriptionStatus.Active;
         await _db.SaveChangesAsync(ct);
@@ -210,15 +308,35 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         ProrationSupport.ThrowIfRequested(options?.Prorate == true);
 
         string oldPlan = subscription.Plan;
-        subscription.Plan = newPlan;
 
-        // Update Mollie subscription if one exists remotely
-        if (!string.IsNullOrEmpty(subscription.MollieCustomerId) &&
-            !string.IsNullOrEmpty(subscription.MollieSubscriptionId))
+        if (!NativeSubscriptions.IsPriced(subscription))
         {
-            await _mollieClient.UpdateSubscriptionAsync(
-                subscription.MollieCustomerId, subscription.MollieSubscriptionId,
-                ct: ct);
+            // No price, nothing at Mollie: the label is all there is, as before 0.6.0.
+            subscription.Plan = newPlan;
+        }
+        else
+        {
+            var price = await NativeSubscriptions.ResolveCheckedAsync(
+                _prices, _options, subscription.OwnerId, newPlan, ct);
+
+            if (!string.IsNullOrEmpty(subscription.MollieSubscriptionId))
+            {
+                // Mollie charges at the start of a cycle, so a new amount sent now is the next
+                // charge: the change takes effect at the end of the paid cycle, without a refund.
+                // The plan follows when that charge is paid (WebhookService).
+                await _mollieClient.UpdateSubscriptionAsync(
+                    subscription.MollieCustomerId!, subscription.MollieSubscriptionId,
+                    price.Gross, _options.Currency, price.Description, ct);
+                subscription.NextPlan = newPlan == subscription.Plan ? null : newPlan;
+            }
+            else
+            {
+                // Not registered at Mollie yet (checkout open): nothing has been charged at the
+                // new price's expense, so the plan changes at once.
+                subscription.Plan = newPlan;
+            }
+
+            NativeSubscriptions.ApplyPrice(subscription, price);
         }
 
         await _db.SaveChangesAsync(ct);
@@ -242,6 +360,251 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             new SubscriptionQuantityUpdated<TKey>(subscription, oldQuantity, quantity, subscription.OwnerId), ct);
 
         return subscription;
+    }
+
+    /// <inheritdoc />
+    public async Task<UpgradeResult<TKey>> UpgradeAsync(IBillable<TKey> owner, string name,
+        string newPlan, IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(replaces);
+        options ??= new UpgradeOptions();
+        var now = DateTimeOffset.UtcNow;
+
+        // ── Refuse before anything moves ────────────────────────────────
+        if (replaces.Count == 0)
+            throw new CashierException("An upgrade replaces at least one subscription.");
+        if (replaces.Select(r => r.Id).Distinct().Count() != replaces.Count)
+            throw new CashierException("An upgrade lists the same subscription twice.");
+        foreach (var r in replaces)
+        {
+            if (!r.OwnerId.Equals(owner.Id))
+                throw new CashierException($"Subscription {r.Id} belongs to another owner.");
+            if (r.Status != SubscriptionStatus.Active || r.EndsAt.HasValue)
+                throw new CashierException($"Subscription {r.Id} is not active and cannot be replaced.");
+            if (!NativeSubscriptions.IsPriced(r))
+                throw new CashierException($"Subscription {r.Id} has no price, so its unused value is unknown.");
+        }
+
+        var replacedIds = replaces.Select(r => r.Id).ToList();
+        bool nameTaken = await _db.Subscriptions.AnyAsync(s =>
+            s.OwnerId!.Equals(owner.Id) && s.Name == name && !replacedIds.Contains(s.Id)
+            && (s.EndsAt == null || s.EndsAt > now), ct);
+        if (nameTaken)
+            throw new CashierException($"The owner already has a live subscription named '{name}'.");
+
+        string customerId = owner.MollieCustomerId
+            ?? throw new CashierException("Owner has no Mollie customer ID.");
+        string mandateId = owner.MollieMandateId
+            ?? await NativeSubscriptions.LatestMandateAsync(_db, owner.Id, ct)
+            ?? throw new CashierException("Owner has no mandate to charge the upgrade from.");
+
+        var price = await NativeSubscriptions.ResolveCheckedAsync(_prices, _options, owner.Id, newPlan, ct);
+
+        // ── The arithmetic, all of it before the first call to Mollie ──
+        var values = replaces
+            .Select(r =>
+            {
+                int days = r.CycleStartedAt.HasValue && r.CycleValueNet.HasValue
+                    ? Money.RemainingWholeDays(r.CycleStartedAt.Value, _options.CycleDays, now)
+                    : 0;
+                decimal value = days == 0 ? 0m : Money.Prorate(r.CycleValueNet!.Value, days, _options.CycleDays);
+                return (Sub: r, Days: days, Value: value);
+            })
+            .ToList();
+
+        decimal credit = values.Sum(v => v.Value);
+        decimal creditApplied = options.OffsetCredit ? Math.Min(credit, price.Net) : 0m;
+        decimal chargedNet = price.Net - creditApplied;
+        decimal chargedGross = chargedNet > 0m ? Money.Gross(chargedNet, price.TaxRatePercent) : 0m;
+        decimal toRefundNet = credit - creditApplied;
+
+        // ── Charge first: if the mandate is refused, nothing else has happened ──
+        Mollie.Api.Models.Payment.Response.PaymentResponse? molliePayment = null;
+        if (chargedGross > 0m)
+        {
+            molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                customerId, mandateId, chargedGross, _options.Currency, price.Description,
+                _options.EffectiveWebhookUrl, metadata: null, ct);
+        }
+
+        // ── End what is replaced, at Mollie as well ──
+        foreach (var r in replaces)
+        {
+            await CancelAtMollieAsync(r, ct);
+            r.Status = SubscriptionStatus.Cancelled;
+            r.EndsAt = now;
+        }
+
+        var subscription = new Subscription<TKey>
+        {
+            OwnerId = owner.Id,
+            Name = name,
+            Plan = newPlan,
+            MollieCustomerId = customerId,
+            Status = SubscriptionStatus.Active,
+            CycleStartedAt = now,
+            CycleValueNet = price.Net,
+        };
+        NativeSubscriptions.ApplyPrice(subscription, price);
+        _db.Subscriptions.Add(subscription);
+        await _db.SaveChangesAsync(ct);
+
+        foreach (var r in replaces)
+            r.ReplacedBySubscriptionId = subscription.Id;
+
+        Payment<TKey>? payment = null;
+        if (molliePayment != null)
+        {
+            payment = new Payment<TKey>
+            {
+                OwnerId = owner.Id,
+                SubscriptionId = subscription.Id,
+                MolliePaymentId = molliePayment.Id,
+                Status = molliePayment.Status ?? "pending",
+                Amount = chargedGross,
+                Currency = _options.Currency,
+                AmountNet = chargedNet,
+                TaxRatePercent = price.TaxRatePercent,
+                CreditNet = creditApplied,
+                MollieMandateId = mandateId,
+            };
+            _db.Payments.Add(payment);
+        }
+
+        await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription, mandateId,
+            now.AddDays(_options.CycleDays), ct);
+        await _db.SaveChangesAsync(ct);
+
+        // ── Refund a surplus last: a refund that fails leaves money owed, not service missing ──
+        var refunded = new Dictionary<long, decimal>();
+        decimal unrefunded = 0m;
+        foreach (var (sub, _, value) in values)
+        {
+            // Without an offset every value is refunded; with one only what the price did not
+            // absorb, taken from the replaced subscriptions in the order given.
+            decimal portion = Math.Min(value, toRefundNet);
+            if (portion <= 0m)
+                continue;
+            toRefundNet -= portion;
+            var (gross, left) = await RefundNetAsync(sub, portion, ct);
+            refunded[sub.Id] = gross;
+            unrefunded += left;
+        }
+
+        if (unrefunded > 0m)
+            LogUnrefundedSurplus(subscription.Id, unrefunded);
+
+        var result = new UpgradeResult<TKey>(
+            subscription,
+            price,
+            values.Select(v => new ReplacedSubscriptionCredit(
+                v.Sub.Id, v.Sub.Plan, v.Days, v.Value, refunded.GetValueOrDefault(v.Sub.Id))).ToList(),
+            creditApplied,
+            chargedNet,
+            chargedGross,
+            payment,
+            unrefunded);
+
+        foreach (var r in replaces)
+            await _eventDispatcher.DispatchAsync(new SubscriptionCancelled<TKey>(r, owner.Id), ct);
+        await _eventDispatcher.DispatchAsync(new SubscriptionCreated<TKey>(subscription, owner.Id), ct);
+        await _eventDispatcher.DispatchAsync(new SubscriptionUpgraded<TKey>(result, owner.Id), ct);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Refunds a net amount of a replaced subscription's value onto the payments that paid for it:
+    /// its own, then those of the subscriptions it replaced in turn, most recent first. Each part
+    /// is refunded at the tax rate that payment was charged at.
+    /// </summary>
+    /// <returns>The gross amount refunded and the net amount that found no refundable payment.</returns>
+    private async Task<(decimal Gross, decimal LeftNet)> RefundNetAsync(Subscription<TKey> replaced,
+        decimal net, CancellationToken ct)
+    {
+        var ownerSubs = await _db.Subscriptions
+            .Where(s => s.OwnerId!.Equals(replaced.OwnerId))
+            .Select(s => new { s.Id, s.ReplacedBySubscriptionId })
+            .ToListAsync(ct);
+
+        // The replaced subscription plus every one that was replaced into it, transitively. A
+        // credit-only cycle has no payment of its own; its value is still sitting in these.
+        var lineage = new HashSet<long> { replaced.Id };
+        bool grew = true;
+        while (grew)
+        {
+            grew = false;
+            foreach (var s in ownerSubs)
+            {
+                if (s.ReplacedBySubscriptionId is long into && lineage.Contains(into) && lineage.Add(s.Id))
+                    grew = true;
+            }
+        }
+
+        var lineageIds = lineage.ToList();
+        var payments = await _db.Payments
+            .Where(p => p.SubscriptionId != null && lineageIds.Contains(p.SubscriptionId.Value)
+                && p.PaidAt != null && p.AmountNet != null)
+            .ToListAsync(ct);
+
+        decimal grossTotal = 0m;
+        decimal left = net;
+        foreach (var p in payments.OrderByDescending(p => p.PaidAt))
+        {
+            if (left <= 0m)
+                break;
+            decimal refundable = p.Amount - p.AmountRefunded - p.AmountChargedBack;
+            if (refundable <= 0m)
+                continue;
+
+            decimal rate = p.TaxRatePercent ?? 0m;
+            decimal gross = Money.Gross(left, rate);
+            decimal coveredNet = left;
+            if (gross > refundable)
+            {
+                gross = refundable;
+                coveredNet = Money.RoundCents(refundable / (1m + (rate / 100m)));
+            }
+
+            await _refunds.RefundAsync(p, gross, $"Unused days of {replaced.Plan}", ct);
+            grossTotal += gross;
+            left -= coveredNet;
+        }
+
+        return (grossTotal, Math.Max(0m, left));
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default)
+    {
+        var subscriptions = await _db.Subscriptions
+            .Where(s => s.OwnerId!.Equals(ownerId) && s.Status == SubscriptionStatus.Active
+                && s.EndsAt == null && s.PriceNet != null && s.MollieSubscriptionId != null)
+            .ToListAsync(ct);
+
+        int changed = 0;
+        foreach (var subscription in subscriptions)
+        {
+            // A pending downgrade is what Mollie charges next, so that is what gets repriced.
+            var price = await NativeSubscriptions.ResolveCheckedAsync(
+                _prices, _options, ownerId, subscription.NextPlan ?? subscription.Plan, ct);
+
+            bool amountChanged = price.Gross != NativeSubscriptions.GrossPerCycle(subscription);
+            bool textChanged = !string.Equals(price.Description, subscription.Description, StringComparison.Ordinal);
+            if (amountChanged || textChanged)
+            {
+                await _mollieClient.UpdateSubscriptionAsync(
+                    subscription.MollieCustomerId!, subscription.MollieSubscriptionId!,
+                    price.Gross, _options.Currency, price.Description, ct);
+                changed++;
+            }
+
+            NativeSubscriptions.ApplyPrice(subscription, price);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return changed;
     }
 
     /// <inheritdoc />

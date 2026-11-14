@@ -92,10 +92,11 @@ public class MollieClientService : IMollieClientService
 
     public async Task<SubscriptionResponse> CreateSubscriptionAsync(string customerId, decimal amount,
         string currency, string interval, string description, string webhookUrl, string? mandateId,
-        IReadOnlyDictionary<string, string>? metadata, CancellationToken ct)
+        IReadOnlyDictionary<string, string>? metadata, DateTimeOffset? startDate, CancellationToken ct)
     {
         var request = new SubscriptionRequest
         {
+            StartDate = startDate?.UtcDateTime.Date,
             Amount = new Amount(currency, amount),
             Interval = interval,
             Description = description,

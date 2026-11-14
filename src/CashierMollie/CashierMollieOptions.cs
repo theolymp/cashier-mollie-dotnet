@@ -49,8 +49,25 @@ public class CashierMollieOptions
     /// <summary>Resolves the webhook URL to send to Mollie. Returns <see cref="WebhookUrl"/> if set, otherwise falls back to <see cref="WebhookPath"/>.</summary>
     public string EffectiveWebhookUrl => string.IsNullOrEmpty(WebhookUrl) ? WebhookPath : WebhookUrl;
 
-    /// <summary>Number of days for the grace period after cancellation. Default is 30.</summary>
+    /// <summary>
+    /// Number of days for the grace period after cancellation. Default is 30. Applies to
+    /// subscriptions without a price (<see cref="Models.Subscription{TKey}.PriceNet"/> null); a
+    /// priced subscription ends with its paid cycle instead.
+    /// </summary>
     public int GracePeriodDays { get; set; } = 30;
+
+    /// <summary>
+    /// Length of one billing cycle in days, sent to Mollie as the interval <c>"{CycleDays} days"</c>.
+    /// Default 30: a fixed length rather than a calendar month, so that the unused value of a
+    /// cycle is the same calculation in every month.
+    /// </summary>
+    public int CycleDays { get; set; } = 30;
+
+    /// <summary>
+    /// Tax rate in percent that <see cref="Services.ConfigPlanPriceResolver{TKey}"/> uses for a
+    /// plan without its own <c>TaxRatePercent</c>. Default 0. Not read by any other component.
+    /// </summary>
+    public decimal DefaultTaxRatePercent { get; set; }
 
     /// <summary>The billing engine to use. MollieNative uses Mollie's built-in recurring; Managed handles billing logic locally.</summary>
     public BillingEngineType BillingEngine { get; set; } = BillingEngineType.MollieNative;

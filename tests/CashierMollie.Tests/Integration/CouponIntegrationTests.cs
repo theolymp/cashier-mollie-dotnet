@@ -24,7 +24,7 @@ public class CouponIntegrationTests : IDisposable
     public CouponIntegrationTests()
     {
         _db = TestDbContextFactory.Create();
-        _mollieClient = Substitute.For<IMollieClientService>();
+        _mollieClient = Substitute.For<IMollieClientService>().WithRecurringDefaults();
         _eventDispatcher = Substitute.For<ICashierEventDispatcher>();
         _couponRepo = Substitute.For<ICouponRepository>();
 
@@ -36,7 +36,7 @@ public class CouponIntegrationTests : IDisposable
             FirstPaymentRedirectUrl = "/billing/success",
         });
 
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
         _couponService = new CouponService<string>(_db, _couponRepo, _eventDispatcher);
     }

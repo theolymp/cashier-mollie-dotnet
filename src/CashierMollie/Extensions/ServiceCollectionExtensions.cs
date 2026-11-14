@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         // Replaceable defaults (NullCashierEventDispatcher is stateless — singleton is sufficient)
         services.TryAddSingleton<ICashierEventDispatcher, NullCashierEventDispatcher>();
         services.TryAddScoped<ICouponRepository, ConfigCouponRepository>();
+        services.TryAddScoped<IPlanPriceResolver<TKey>, ConfigPlanPriceResolver<TKey>>();
         services.TryAddScoped<IInvoiceGenerator<TKey>, NullInvoiceGenerator<TKey>>();
 
         return services;

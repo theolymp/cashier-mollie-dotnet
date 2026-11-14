@@ -38,10 +38,14 @@ public interface IMollieClientService
     /// <summary>Retrieves a payment from Mollie by ID.</summary>
     Task<PaymentResponse> GetPaymentAsync(string paymentId, CancellationToken ct = default);
 
-    /// <summary>Creates a subscription in Mollie for recurring billing.</summary>
+    /// <summary>
+    /// Creates a subscription in Mollie for recurring billing. <c>startDate</c> is the first day
+    /// Mollie charges (its date part, UTC); null lets Mollie charge today.
+    /// </summary>
     Task<SubscriptionResponse> CreateSubscriptionAsync(string customerId, decimal amount, string currency,
         string interval, string description, string webhookUrl, string? mandateId = null,
-        IReadOnlyDictionary<string, string>? metadata = null, CancellationToken ct = default);
+        IReadOnlyDictionary<string, string>? metadata = null, DateTimeOffset? startDate = null,
+        CancellationToken ct = default);
 
     /// <summary>Retrieves a subscription from Mollie.</summary>
     Task<SubscriptionResponse> GetSubscriptionAsync(string customerId, string subscriptionId, CancellationToken ct = default);

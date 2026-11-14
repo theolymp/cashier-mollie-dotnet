@@ -88,6 +88,16 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     }
 
     /// <inheritdoc />
+    public Task<UpgradeResult<TKey>> UpgradeAsync(IBillable<TKey> owner, string name, string newPlan,
+        IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null,
+        CancellationToken ct = default)
+        => _engine.UpgradeAsync(owner, name, newPlan, replaces, options, ct);
+
+    /// <inheritdoc />
+    public Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default)
+        => _engine.RepriceAsync(ownerId, ct);
+
+    /// <inheritdoc />
     public async Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
         var sub = await GetSubscriptionAsync(owner, name, ct);

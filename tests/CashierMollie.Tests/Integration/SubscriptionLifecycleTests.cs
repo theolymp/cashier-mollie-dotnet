@@ -22,7 +22,7 @@ public class SubscriptionLifecycleTests : IDisposable
     public SubscriptionLifecycleTests()
     {
         _db = TestDbContextFactory.Create();
-        _mollieClient = Substitute.For<IMollieClientService>();
+        _mollieClient = Substitute.For<IMollieClientService>().WithRecurringDefaults();
         _eventDispatcher = Substitute.For<ICashierEventDispatcher>();
         var options = Options.Create(new CashierMollieOptions
         {
@@ -31,7 +31,7 @@ public class SubscriptionLifecycleTests : IDisposable
             WebhookUrl = "/cashier/webhook",
             FirstPaymentRedirectUrl = "/billing/success",
         });
-        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), NullLogger<MollieBillingEngine<string>>.Instance);
+        var engine = new MollieBillingEngine<string>(_db, _mollieClient, _eventDispatcher, options, new CouponService<string>(_db, Substitute.For<ICouponRepository>(), _eventDispatcher), new FakePlanPriceResolver<string>(), Substitute.For<IRefundService<string>>(), NullLogger<MollieBillingEngine<string>>.Instance);
         _cashier = new CashierService<string>(_db, engine, _mollieClient, _eventDispatcher, options, NullLogger<CashierService<string>>.Instance);
     }
 
@@ -63,8 +63,10 @@ public class SubscriptionLifecycleTests : IDisposable
         Assert.False(await _cashier.OnGracePeriodAsync(owner, "default"));
 
         // 5. Swap plan
+        // Registered at Mollie, so the swap is the next charge: the plan follows when it is paid.
         var swapped = await _cashier.SwapAsync(owner, "default", "team");
-        Assert.Equal("team", swapped.Plan);
+        Assert.Equal("pro", swapped.Plan);
+        Assert.Equal("team", swapped.NextPlan);
     }
 
     [Fact]
@@ -185,7 +187,7 @@ public class SubscriptionLifecycleTests : IDisposable
         _mollieClient.GetPaymentAsync("tr_fp_activate", Arg.Any<CancellationToken>())
             .Returns(webhookPaymentResponse);
 
-        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher, Microsoft.Extensions.Options.Options.Create(new CashierMollieOptions()), NullLogger<WebhookService<string>>.Instance);
         await webhookService.HandlePaymentAsync("tr_fp_activate");
 
         // 3. Verify subscription is now active
@@ -234,7 +236,7 @@ public class SubscriptionLifecycleTests : IDisposable
         _mollieClient.GetPaymentAsync("tr_fp_fail", Arg.Any<CancellationToken>())
             .Returns(failedPayment);
 
-        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        var webhookService = new WebhookService<string>(_db, _mollieClient, _eventDispatcher, Microsoft.Extensions.Options.Options.Create(new CashierMollieOptions()), NullLogger<WebhookService<string>>.Instance);
         await webhookService.HandlePaymentAsync("tr_fp_fail");
 
         // Subscription should still be pending

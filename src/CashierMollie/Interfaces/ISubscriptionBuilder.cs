@@ -27,9 +27,11 @@ public interface ISubscriptionBuilder<TKey> where TKey : IEquatable<TKey>
     ISubscriptionBuilder<TKey> TrialDays(int days);
 
     /// <summary>
-    /// **Throws <see cref="NotSupportedException"/>.** Proration is not implemented: nothing
-    /// computes a credit for unused time. Until 0.5.1 this summary read "Enables proration when
-    /// swapping plans mid-cycle", which is what the method was meant to do and never did.
+    /// **Throws <see cref="NotSupportedException"/>.** A subscription being created has no unused
+    /// time to credit. Credit for the unused days of existing subscriptions is
+    /// <see cref="ICashierService{TKey}.UpgradeAsync"/> (MollieNative, since 0.6.0). Until 0.5.1
+    /// this summary read "Enables proration when swapping plans mid-cycle", which is what the
+    /// method was meant to do and never did.
     /// </summary>
     ISubscriptionBuilder<TKey> WithProration();
 

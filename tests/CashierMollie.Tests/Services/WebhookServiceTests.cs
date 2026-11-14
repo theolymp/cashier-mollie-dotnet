@@ -5,6 +5,7 @@ using CashierMollie.Models;
 using CashierMollie.Services;
 using CashierMollie.Tests.TestHelpers;
 using Mollie.Api.Models.Payment.Response;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 namespace CashierMollie.Tests.Services;
@@ -21,7 +22,7 @@ public class WebhookServiceTests : IDisposable
         _db = TestDbContextFactory.Create();
         _mollieClient = Substitute.For<IMollieClientService>();
         _eventDispatcher = Substitute.For<ICashierEventDispatcher>();
-        _sut = new WebhookService<string>(_db, _mollieClient, _eventDispatcher);
+        _sut = new WebhookService<string>(_db, _mollieClient, _eventDispatcher, Microsoft.Extensions.Options.Options.Create(new CashierMollieOptions()), NullLogger<WebhookService<string>>.Instance);
     }
 
     private static PaymentResponse MockPaymentResponse(string id, string status, string? mandateId = null)

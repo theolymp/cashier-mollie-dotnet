@@ -234,6 +234,20 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         return subscription;
     }
 
+    /// <summary>Not supported: upgrades with credit are built for the MollieNative engine.</summary>
+    public Task<UpgradeResult<TKey>> UpgradeAsync(IBillable<TKey> owner, string name, string newPlan,
+        IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null,
+        CancellationToken ct = default) =>
+        throw new NotSupportedException(
+            "UpgradeAsync is implemented for the MollieNative engine only. On the Managed engine the "
+            + "consumer prices each order item and can credit the remainder there.");
+
+    /// <summary>Not supported: the Managed engine charges what the consumer prices per order item.</summary>
+    public Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default) =>
+        throw new NotSupportedException(
+            "RepriceAsync is implemented for the MollieNative engine only. On the Managed engine "
+            + "set the price on the pending order item.");
+
     /// <inheritdoc />
     /// <summary>
     /// Fills in <see cref="Order{TKey}.Number"/> from the configured format, or leaves it null.

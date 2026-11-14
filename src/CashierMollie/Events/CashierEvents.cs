@@ -28,6 +28,13 @@ public record SubscriptionResumed<TKey>(Subscription<TKey> Subscription, TKey Ow
 public record SubscriptionPlanSwapped<TKey>(Subscription<TKey> Subscription, string OldPlan, string NewPlan, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
+/// <summary>
+/// Dispatched when <see cref="Interfaces.ICashierService{TKey}.UpgradeAsync"/> has replaced
+/// subscriptions with a new one. Carries the full calculation for the invoice.
+/// </summary>
+public record SubscriptionUpgraded<TKey>(UpgradeResult<TKey> Result, TKey OwnerId)
+    where TKey : IEquatable<TKey>;
+
 // ── Subscription events ─────────────────────────────────────────────
 
 /// <summary>Dispatched when a subscription's quantity is updated.</summary>
