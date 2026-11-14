@@ -65,7 +65,7 @@ public interface IBillingEngine<TKey> where TKey : IEquatable<TKey>
 
     /// <summary>See <see cref="ICashierService{TKey}.CancelImmediatelyWithRefundAsync"/>. Managed throws
     /// <see cref="NotSupportedException"/>.</summary>
-    Task<decimal> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription, CancellationToken ct = default);
+    Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription, CancellationToken ct = default);
 
     /// <summary>Processes due order items (only relevant for ManagedEngine).</summary>
     Task ProcessDueItemsAsync(CancellationToken ct = default);

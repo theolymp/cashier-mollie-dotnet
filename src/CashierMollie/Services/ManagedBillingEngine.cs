@@ -248,7 +248,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         throw new NotSupportedException("PayOutstandingAsync is implemented for the MollieNative engine only.");
 
     /// <summary>Not supported on the Managed engine.</summary>
-    public Task<decimal> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription,
+    public Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription,
         CancellationToken ct = default) =>
         throw new NotSupportedException("CancelImmediatelyWithRefundAsync is implemented for the MollieNative engine only.");
 

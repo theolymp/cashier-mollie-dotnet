@@ -113,8 +113,17 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// ordinary cancellation (<see cref="CancelAsync"/>) refunds nothing: it runs to the end of
     /// the paid cycle.
     /// </summary>
-    /// <returns>The gross amount refunded.</returns>
-    Task<decimal> CancelImmediatelyWithRefundAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+    /// <returns>Remaining days, their net value, the gross refunded and any net that could not be
+    /// refunded (also logged); a failed refund is reported there rather than thrown, because the
+    /// subscription has already ended.</returns>
+    Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// The failed priced payments of a subscription that are not yet settled, oldest first: what
+    /// keeps it <c>past_due</c> and what <see cref="PayOutstandingAsync"/> checks out next.
+    /// </summary>
+    Task<IReadOnlyList<Payment<TKey>>> GetOutstandingPaymentsAsync(IBillable<TKey> owner, string name,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Checks whether the owner has an active subscription with the given name.
