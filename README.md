@@ -160,6 +160,11 @@ Add a `CashierMollie` section to your `appsettings.json`:
 
 ## Getting Started
 
+A runnable example lives in [`samples/CashierMollie.Sample`](samples/CashierMollie.Sample): a minimal
+API selling three plans on `MollieNative`, with upgrade, downgrade, cancellation, termination with
+refund and payment default. It also contains the scripted run against Mollie's test mode
+([`TESTMODE.md`](samples/CashierMollie.Sample/TESTMODE.md)).
+
 ### 1. Implement IBillable on your user model
 
 ```csharp
@@ -813,18 +818,17 @@ CashierMollie dispatches domain events throughout the subscription and payment l
 ### Who retries a failed payment? (read before handling `OrderPaymentFailed`)
 
 Events are **notifications, not instructions** -- but do not read that as "you can ignore them".
-There is **no dunning logic in this library**: no retry cap, no backoff schedule, no automatic
-subscription suspension, no customer notification. What happens after a failure depends entirely on
-the billing engine:
+There is **no retry logic in this library**: no retry cap, no backoff schedule, no customer
+notification. What happens after a failure depends on the billing engine:
 
-| Engine | What retries | What you still own |
+| Engine | What happens | What you still own |
 |--------|--------------|--------------------|
-| `MollieNative` (default) | **Nothing.** Mollie retries the charges of a subscription it knows about, and this library creates none -- so there is no recurring charge to fail and none to retry. The mandate payment is the only charge it makes. | Everything, starting with whether you need the `Managed` engine instead. |
+| `MollieNative` (default) | **The subscription is locked.** From 0.6.0 a failed priced payment puts it `past_due` (not active) and dispatches the past-due event (see [Available events](#available-events)). Mollie does not charge the failed amount again; `PayOutstandingAsync` gives the customer a checkout for it, and paying everything outstanding unlocks the subscription. Unpriced subscriptions (mandate-only, or created before 0.6.0) are not charged at all, so nothing fails. | Telling the customer, any grace period before you lock access (`Payment.FailedAt`), and when to give up and cancel. |
 | `Managed` | Nothing explicitly. The failed `OrderItem` is simply left unconsumed, so the **next billing cycle picks it up again** -- retry by omission, with **no attempt limit and no backoff**. | Capping attempts and giving up. Without that, a permanently failing item is retried forever. |
 
-**Do not assume the library will eventually give up and suspend the subscription -- it will not.**
-Dunning/retry is a documented gap on the [Roadmap](#roadmap). If revenue depends on it, implement
-it in your `ICashierEventDispatcher`.
+**On `Managed`, do not assume the library will eventually give up and suspend the subscription --
+it will not.** Retry with escalation is on the [Roadmap](#roadmap). If revenue depends on it,
+implement it in your `ICashierEventDispatcher`.
 
 > **Known API wart:** `OrderPaymentFailedDueToInvalidMandate<TKey>` is declared and unit-tested but
 > is **never dispatched** by any code path in this version. Do not build on it. `OrderPaymentFailed`
@@ -947,6 +951,26 @@ If you don't register a handler, CashierMollie uses a built-in `NullCashierEvent
 ## Database Schema
 
 CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model builder extension:
+
+### Upgrading to 0.6.0: new columns, and MollieNative starts charging
+
+**Read the behaviour change before you migrate.** From 0.6.0 a `MollieNative` subscription with a
+price is registered at Mollie and charged every `CycleDays` days; up to 0.5.0 nothing recurring was
+charged. Every plan you create subscriptions for needs a price (`CashierMollie:Plans` or your own
+`IPlanPriceResolver<TKey>`), or creating one throws. Subscriptions that already exist have no price
+and keep behaving as before; `RepriceAsync` does **not** price them, because it only touches
+subscriptions that are already priced. The full list is in the [CHANGELOG](CHANGELOG.md).
+
+The schema only grows -- every new column is nullable or has a default, so existing rows are
+unchanged. One `dotnet ef migrations add` against your context picks up:
+
+| Table | New columns |
+|---|---|
+| `cashier_subscriptions` | `PriceNet`, `TaxRatePercent` (`decimal(18,4)` null), `Description` (`varchar(255)` null), `CycleValueNet` (`decimal(18,4)` null), `ReplacedBySubscriptionId` (`bigint` null) |
+| `cashier_payments` | `AmountNet`, `TaxRatePercent` (`decimal(18,4)` null), `CreditNet` (`decimal(18,4)`, default 0), `SettlesPaymentId` (`bigint` null, indexed) |
+
+`past_due` is a new value of `cashier_subscriptions.Status`; if you filter on status yourself, decide
+what it means for you.
 
 ### Upgrading to 0.5.0: three schema changes, one migration
 
@@ -1104,6 +1128,11 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
         IReadOnlyCollection<Subscription<TKey>> replaces, UpgradeOptions? options = null, ...);
     Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
+    // Payment default and termination for good cause (MollieNative, 0.6.0)
+    Task<IReadOnlyList<Payment<TKey>>> GetOutstandingPaymentsAsync(IBillable<TKey> owner, string name, ...);
+    Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, string name, ...);
+    Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(IBillable<TKey> owner, string name, ...);
+
     // Status checks
     Task<bool> IsSubscribedAsync(IBillable<TKey> owner, string name, ...);
     Task<bool> OnGracePeriodAsync(IBillable<TKey> owner, string name, ...);
@@ -1206,7 +1235,8 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [x] **Plan pricing resolution** -- `IPlanPriceResolver<TKey>`, configurable by default, for `MollieNative` (0.6.0). `Managed` still charges what the consumer puts on the order item
 - [x] **Recurring billing on `MollieNative`** -- priced subscriptions are registered at Mollie and charged every cycle (0.6.0). Up to 0.5.0 nothing recurring was charged
 - [ ] **Metadata on recurring charges** -- order items carry no metadata, so only the first payment takes it to Mollie
-- [ ] **Dunning / retry logic** -- automatic payment retry with escalation
+- [x] **Payment default on `MollieNative`** -- a failed cycle locks the subscription (`past_due`), `PayOutstandingAsync` settles it with a new mandate (0.6.0)
+- [ ] **Dunning / retry logic** -- automatic payment retry with escalation (neither engine retries with a limit or backoff)
 
 ## Contributing
 
