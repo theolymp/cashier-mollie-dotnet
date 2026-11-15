@@ -14,7 +14,7 @@ not by priority.
 
 ### The default engine registers no subscription with Mollie, so nothing recurring is charged
 
-**Built on `feat/billing-0.6` (2026-11-14), not yet released:** variant A below, as planned in
+**Built (2026-11-14) and on nuget.org as 0.6.0-beta.1; beta.2 tagged, awaiting the `release` approval:** variant A below, as planned in
 "Billing plan for 0.6.0". A priced subscription is registered at Mollie after its first payment
 and charged every 30 days; unpriced ones (mandate-only, pre-0.6.0) stay local. Still unmeasured
 until the test-mode run: Mollie's booking of a mid-cycle amount change. The text below is the
@@ -432,6 +432,12 @@ with `UnitPrice = 0m` by design, with a comment saying so. Proration depends on 
 Robin confirmed the prices via root ("passt so, können wir später noch ändern"), so it was built,
 with the prices configurable rather than in code. Open after merge: a release (root's call), the
 consumer migration, and the test-mode run (test key and webhook release, both with Robin).
+
+**State 2026-11-15:** beta.1 published, beta.2 (payment default, termination with refund) tagged and
+waiting for the `release` approval. The test-mode run is scripted in
+`samples/CashierMollie.Sample` (`TESTMODE.md`: upgrade, surplus, downgrade with the booked amount
+change, early end, past due, invoice data) and waits only for the test key. Final 0.6.0 follows its
+`report` exiting 0. Open in it: whether Mollie accepts an interval of `1 days` (`ShortCycleDays`).
 
 Robin's decision, relayed by root on 2026-11-14: three tiers (single module from a suite, suite, all-inclusive),
 streamernet sold separately, monthly only, a 7-day trial per account, upgrades immediate with credit. This
