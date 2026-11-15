@@ -58,3 +58,7 @@ docs/
 # Python bytecode, produced when a tool imports the licence classifier as a module.
 __pycache__/
 *.pyc
+
+## Sample data (SQLite files and the test-mode report)
+samples/**/sample-data/
+samples/**/testmode-data/
