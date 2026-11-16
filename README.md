@@ -1241,8 +1241,8 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 
 ## Testing your integration
 
-The package `CashierMollie.Testing` (same version as `CashierMollie`) provides `FakeMollieClient`,
-an in-memory Mollie. It keeps customers, mandates, payments, subscriptions and refunds, and it
+The namespace `CashierMollie.Testing` provides `FakeMollieClient`, an in-memory Mollie. It ships
+in the `CashierMollie` package itself, with no extra dependency. It keeps customers, mandates, payments, subscriptions and refunds, and it
 refuses what Mollie refuses: a recurring charge without a valid mandate, a refund above what was
 paid, a second active subscription with the same description, and a relative webhook URL.
 

@@ -221,16 +221,3 @@ public sealed class FakeMollieFlowTests : IDisposable
     }
 }
 
-public class TestingPackageVersionTests
-{
-    [Fact]
-    // Released together: a CashierMollie.Testing that depends on a different library version
-    // would test something the consumer does not run.
-    public void TheTestingPackage_HasTheLibrarysVersion()
-    {
-        static string? Version(Type t) => System.Reflection.CustomAttributeExtensions
-            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(t.Assembly)?.InformationalVersion.Split('+')[0];
-        Assert.NotNull(Version(typeof(CashierMollie.Services.CashierService<string>)));
-        Assert.Equal(Version(typeof(CashierMollie.Services.CashierService<string>)), Version(typeof(FakeMollieClient)));
-    }
-}
