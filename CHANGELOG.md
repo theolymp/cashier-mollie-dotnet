@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.3] - 2026-11-16
+
 ### Added -- an in-memory Mollie for tests
 - Namespace **`CashierMollie.Testing`** in this package: `FakeMollieClient`, an
   in-memory `IMollieClientService` for a consumer's tests (`services.AddFakeMollie()`). The test
