@@ -456,6 +456,12 @@
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.15, )",
           "Mollie.Api": "[4.20.0, )"
         }
+      },
+      "cashiermollie.testing": {
+        "type": "Project",
+        "dependencies": {
+          "CashierMollie": "[0.6.0-beta.2, )"
+        }
       }
     },
     "net11.0": {
@@ -910,6 +916,12 @@
           "Microsoft.EntityFrameworkCore": "[10.0.15, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.15, )",
           "Mollie.Api": "[4.20.0, )"
+        }
+      },
+      "cashiermollie.testing": {
+        "type": "Project",
+        "dependencies": {
+          "CashierMollie": "[0.6.0-beta.2, )"
         }
       }
     }

@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CashierMollie\CashierMollie.csproj" />
+    <ProjectReference Include="..\..\src\CashierMollie.Testing\CashierMollie.Testing.csproj" />
   </ItemGroup>
 
 </Project>

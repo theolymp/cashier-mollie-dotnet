@@ -64,6 +64,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
   - [Subscription Model](#subscriptiontkey-model)
 - [Configuration Reference](#configuration-reference)
 - [Roadmap](#roadmap)
+- [Testing your integration](#testing-your-integration)
 - [Contributing](#contributing)
 - [Credits](#credits)
 - [License](#license)
@@ -1237,6 +1238,30 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [ ] **Metadata on recurring charges** -- order items carry no metadata, so only the first payment takes it to Mollie
 - [x] **Payment default on `MollieNative`** -- a failed cycle locks the subscription (`past_due`), `PayOutstandingAsync` settles it with a new mandate (0.6.0)
 - [ ] **Dunning / retry logic** -- automatic payment retry with escalation (neither engine retries with a limit or backoff)
+
+## Testing your integration
+
+The package `CashierMollie.Testing` (same version as `CashierMollie`) provides `FakeMollieClient`,
+an in-memory Mollie. It keeps customers, mandates, payments, subscriptions and refunds, and it
+refuses what Mollie refuses: a recurring charge without a valid mandate, a refund above what was
+paid, a second active subscription with the same description, and a relative webhook URL.
+
+```csharp
+// in your test host, after AddCashierMollie:
+var mollie = services.AddFakeMollie();
+
+// what the customer and Mollie would do:
+mollie.SetPaymentStatus(paymentId, "paid");                 // checkout paid; a first payment creates a mandate
+var cycle = mollie.ChargeSubscription(mollieSubscriptionId); // Mollie's charge on the next payment date
+var failed = mollie.ChargeSubscription(mollieSubscriptionId, "failed");
+
+// the fake does not call your webhook -- you do, as Mollie would:
+await webhookService.HandlePaymentAsync(cycle.Id);
+```
+
+`Payments`, `Subscriptions` and `Refunds` expose what reached the fake, so you can assert on the
+amounts. `tests/CashierMollie.Tests/Testing/FakeMollieFlowTests.cs` walks through checkout,
+downgrade, upgrade with credit, payment default and the early end with refund.
 
 ## Contributing
 

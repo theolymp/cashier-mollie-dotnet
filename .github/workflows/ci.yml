@@ -251,7 +251,10 @@ jobs:
       # as exactly one string, the PDB path in the PE debug directory. Already-published versions
       # are immutable, so 0.3.0 and 0.4.0 keep theirs; this takes effect from the next tag.
       - name: Pack
-        run: dotnet pack src/CashierMollie/CashierMollie.csproj --configuration Release --output ./nupkg -p:PathMap=$GITHUB_WORKSPACE=.
+        # Two packages, always the same version: the library and its in-memory Mollie for tests.
+        run: |
+          dotnet pack src/CashierMollie/CashierMollie.csproj --configuration Release --output ./nupkg -p:PathMap=$GITHUB_WORKSPACE=.
+          dotnet pack src/CashierMollie.Testing/CashierMollie.Testing.csproj --configuration Release --output ./nupkg -p:PathMap=$GITHUB_WORKSPACE=.
 
       # The blocking half of the build-path check, and the only place it belongs: it measures the
       # .nupkg that is about to be pushed, not one it packed itself, and a push is irreversible --
@@ -261,8 +264,15 @@ jobs:
       - name: Verify the package about to be published carries no build path
         env:
           STRICT: "1"
+        # Every package, not the first one: a check that measures one of two leaves the other unchecked.
         run: |
-          MAPPED_PACKAGE="$(ls ./nupkg/*.nupkg | head -1)" .github/build-path-check.sh
+          set -euo pipefail
+          count=0
+          for pkg in ./nupkg/*.nupkg; do
+            MAPPED_PACKAGE="$pkg" .github/build-path-check.sh
+            count=$((count + 1))
+          done
+          [ "$count" -eq 2 ] || { echo "expected 2 packages, checked $count"; exit 1; }
 
       # Deliberately after Pack and immediately before the push: the exchanged key is short-lived,
       # and a login that sits an hour ahead of the thing it authorises is a failure waiting for a

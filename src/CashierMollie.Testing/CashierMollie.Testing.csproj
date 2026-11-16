@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>CashierMollie.Testing</PackageId>
+    <!-- Released together with CashierMollie, always the same version. -->
+    <Version>0.6.0-beta.2</Version>
+    <Authors>the Olymp (Robin Parker)</Authors>
+    <Copyright>Copyright (c) 2026 the Olymp (Robin Parker)</Copyright>
+    <Company>the Olymp (Robin Parker)</Company>
+    <Description>In-memory Mollie for testing applications built on CashierMollie: charge, fail, refund and run subscription cycles without the Mollie API.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/TheOlymp/cashier-mollie-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TheOlymp/cashier-mollie-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>mollie;payments;subscriptions;billing;cashier;testing</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CashierMollie\CashierMollie.csproj" />
+  </ItemGroup>
+</Project>

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added -- CashierMollie.Testing
+- New package **`CashierMollie.Testing`**, released with the same version: `FakeMollieClient`, an
+  in-memory `IMollieClientService` for a consumer's tests (`services.AddFakeMollie()`). The test
+  settles payments (`SetPaymentStatus`) and runs subscription cycles (`ChargeSubscription`); the
+  fake enforces mandate, refund-limit, description and webhook-URL rules as Mollie does.
+
 ## [0.6.0-beta.2] - 2026-11-14
 
 ### Added -- payment default and termination for good cause
