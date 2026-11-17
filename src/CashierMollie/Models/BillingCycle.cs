@@ -6,10 +6,8 @@ namespace CashierMollie.Models;
 /// </summary>
 /// <remarks>
 /// A monthly cycle ends on the subscription's anchor day of a later month: the first such date
-/// after the day the cycle started, or that month's last day if the month is shorter. So a cycle
-/// anchored on the 31st ends on 28/29 February and then on 31 March, as Mollie charges, and a
-/// payment that arrives days late does not shift the next end. The unused value of a monthly
-/// cycle is prorated over the days of that cycle (28 to 31), not over a fixed 30.
+/// after the day the cycle started, or that month's last day if the month is shorter. The unused
+/// value of a monthly cycle is prorated over the days of that cycle (28 to 31), not over a fixed 30.
 /// </remarks>
 public static class BillingCycle
 {
@@ -46,8 +44,11 @@ public static class BillingCycle
     }
 
     /// <summary>
-    /// Whole days left of the cycle and its length in days, with the current day counted as used:
-    /// the time left is truncated, never rounded up, and clamped to <c>0..length</c>.
+    /// Whole days left of the cycle and its length in days (from the start date to the end date:
+    /// 28 for a first cycle from 31 January, 31 for 1 to 31 January), with the current day counted
+    /// as used: the time left is truncated, never rounded up, and clamped to <c>0..length</c>.
+    /// A cycle starts on the day it was due: the activation, or the day Mollie created the charge,
+    /// not the day a late debit arrived.
     /// </summary>
     public static (int Remaining, int Length) RemainingDays(DateTimeOffset cycleStartedAt, int? anchorDay,
         CashierMollieOptions options, DateTimeOffset now)
@@ -56,16 +57,10 @@ public static class BillingCycle
         DateTimeOffset end = End(cycleStartedAt, anchorDay, options);
         int length = options.Interval == BillingInterval.Days
             ? options.CycleDays
-            : (int)Math.Round((end.UtcDateTime.Date - PreviousBoundary(end.UtcDateTime, anchorDay ?? cycleStartedAt.UtcDateTime.Day)).TotalDays);
+            : (end.UtcDateTime.Date - cycleStartedAt.UtcDateTime.Date).Days;
         TimeSpan left = end - now;
         int remaining = left <= TimeSpan.Zero ? 0 : Math.Min(length, (int)Math.Floor(left.TotalDays));
         return (remaining, length);
-    }
-
-    private static DateTime PreviousBoundary(DateTime end, int anchor)
-    {
-        DateTime previous = end.AddMonths(-1);
-        return OnDay(previous.Year, previous.Month, Math.Clamp(anchor, 1, 31));
     }
 
     private static DateTime AddMonth(DateTime from, int anchor)

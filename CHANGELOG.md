@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `net x remaining whole days / days of the cycle`. `BillingCycle` holds the rules
   (`End`, `RemainingDays`, `After`, `MollieInterval`); `Money` is unchanged.
 - `Interval = Days` with `CycleDays` keeps fixed cycles, for a short test run.
+- A cycle Mollie charges starts on its due date (the day Mollie created the charge), not on the
+  day a late SEPA debit was reported paid. A first cycle from the 29th to 31st runs to the clamped
+  day and is prorated over its own length (31 January to 28 February: 28 days).
+- Subscriptions registered at Mollie as `"30 days"` before this change keep that interval at Mollie
+  while the library now computes months; none exist in a released consumer (checkout was off).
 - Schema: `cashier_subscriptions.CycleAnchorDay` (`int`, null). Additive.
 
 ### Changed

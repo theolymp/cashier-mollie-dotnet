@@ -54,10 +54,37 @@ public class BillingCycleTests
     [InlineData(2026, 2, 1, 1, 2026, 2, 1, 27, 28)]    // February: 28 days, first day used
     [InlineData(2026, 1, 1, 1, 2026, 1, 1, 30, 31)]    // January: 31
     [InlineData(2026, 4, 1, 1, 2026, 4, 11, 19, 30)]   // April, ten days in
-    [InlineData(2026, 1, 31, 31, 2026, 2, 27, 0, 28)]  // ends 28 Feb 10:00; on 27 Feb 10:00 one day is left, the day itself counts as used
+    [InlineData(2026, 1, 31, 31, 2026, 2, 27, 0, 28)]  // ends 28 Feb 10:00; at 27 Feb 11:00 only 23 hours are left: 0 whole days
     [InlineData(2026, 1, 31, 31, 2026, 3, 1, 0, 28)]   // past the end
     public void RemainingDaysAndLength(int y, int m, int d, int anchor, int ny, int nm, int nd, int remaining, int length) =>
         Assert.Equal((remaining, length), BillingCycle.RemainingDays(Utc(y, m, d), anchor, Monthly, Utc(ny, nm, nd, 11)));
+
+    [Theory]
+    // A first cycle from the 29th-31st runs to the clamped day: its length is those days.
+    [InlineData(2026, 1, 31, 28, 27)]  // sign-up 31 Jan, Mollie starts 28 Feb (anchor 28): 28 days, 27 left an hour later
+    [InlineData(2026, 1, 29, 28, 29)]  // non-leap: 29 Jan -> 28 Feb is 30 days
+    [InlineData(2026, 8, 31, 30, 29)]  // 31 Aug -> 30 Sep is 30 days
+    public void AFirstCycleIsAsLongAsItRuns(int y, int m, int d, int anchor, int remaining)
+    {
+        var (left, length) = BillingCycle.RemainingDays(Utc(y, m, d), anchor, Monthly, Utc(y, m, d, 11));
+        Assert.Equal(remaining + 1, length);
+        Assert.Equal(remaining, left);
+    }
+
+    [Fact]
+    // Late in the day: a cycle started at 23:59 has its first day used two minutes later.
+    public void NearMidnight()
+    {
+        var start = new DateTimeOffset(2026, 3, 10, 23, 59, 0, TimeSpan.Zero);
+        Assert.Equal(new DateTimeOffset(2026, 4, 10, 23, 59, 0, TimeSpan.Zero), BillingCycle.End(start, 10, Monthly));
+        Assert.Equal((30, 31), BillingCycle.RemainingDays(start, 10, Monthly, new DateTimeOffset(2026, 3, 11, 0, 1, 0, TimeSpan.Zero)));
+    }
+
+    [Fact]
+    // An offset is converted, not ignored: 1 Feb 00:30 +02:00 is 31 Jan 22:30 UTC.
+    public void AnOffsetIsReadAsUtc() =>
+        Assert.Equal(new DateTimeOffset(2026, 2, 28, 22, 30, 0, TimeSpan.Zero),
+            BillingCycle.End(new DateTimeOffset(2026, 2, 1, 0, 30, 0, TimeSpan.FromHours(2)), 31, Monthly));
 
     [Fact]
     // 9.99 net, January (31 days), upgraded on the 11th at 11:00: 20 whole days left.

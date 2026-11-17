@@ -181,6 +181,29 @@ public sealed class FakeMollieFlowTests : IDisposable
     }
 
     [Fact]
+    // A SEPA debit that arrives days late: the cycle starts on the day Mollie created the charge.
+    public async Task ALatePaidCycle_StartsOnItsDueDate()
+    {
+        await PaidSubscription("pro");
+        await With(async sp =>
+        {
+            // The previous cycle began a month ago; this one fell due four days ago.
+            var db = sp.GetRequiredService<CashierDbContext<string>>();
+            var row = await db.Subscriptions.SingleAsync();
+            row.CycleStartedAt = DateTimeOffset.UtcNow.AddDays(-34);
+            await db.SaveChangesAsync();
+            return true;
+        });
+        var cycle = _mollie.ChargeSubscription(_mollie.Subscriptions.Single().Id, "pending");
+        var due = DateTime.UtcNow.Date.AddDays(-4).AddHours(5);
+        cycle.CreatedAt = due;
+        _mollie.SetPaymentStatus(cycle.Id, "paid");
+        await Webhook(cycle.Id);
+
+        Assert.Equal(new DateTimeOffset(due, TimeSpan.Zero), (await Sub("main")).CycleStartedAt);
+    }
+
+    [Fact]
     public async Task ALaterPaidCycle_DoesNotUnlockWhileAnEarlierOneIsOutstanding()
     {
         await PaidSubscription("pro");
