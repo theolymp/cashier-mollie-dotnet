@@ -1,0 +1,6 @@
+# Throwaway SA password of the SQL Server service container CI starts for its provider tests
+# (.github/workflows/ci.yml, introduced in c91301c). The container exists only for one job on a
+# GitHub runner, is reachable on 127.0.0.1 inside it, and holds no data. Not a credential.
+c91301cbb8e8464b773a6194ce7471432181334f:.github/workflows/ci.yml:generic-api-key:76
+c91301cbb8e8464b773a6194ce7471432181334f:.github/workflows/ci.yml:generic-api-key:157
+c91301cbb8e8464b773a6194ce7471432181334f:.github/workflows/ci.yml:generic-api-key:163
