@@ -313,7 +313,7 @@ public sealed class FakeMollieClient : IMollieClientService
         lock (_gate)
         {
             if (!_mandates.TryGetValue(mandateId, out var mandate) || mandate.CustomerId != customerId)
-                throw Refused($"Customer {customerId} has no mandate {mandateId}.");
+                throw NotFound($"Customer {customerId} has no mandate {mandateId}.");
             return Task.FromResult(mandate);
         }
     }
@@ -374,7 +374,7 @@ public sealed class FakeMollieClient : IMollieClientService
         lock (_gate)
         {
             return Task.FromResult(_refunds.SingleOrDefault(r => r.Id == refundId && r.PaymentId == paymentId)
-                ?? throw Refused($"Payment {paymentId} has no refund {refundId}."));
+                ?? throw NotFound($"Payment {paymentId} has no refund {refundId}."));
         }
     }
 
@@ -406,15 +406,15 @@ public sealed class FakeMollieClient : IMollieClientService
     }
 
     private CustomerResponse RequireCustomer(string customerId) =>
-        _customers.TryGetValue(customerId, out var customer) ? customer : throw Refused($"Fake Mollie has no customer {customerId}.");
+        _customers.TryGetValue(customerId, out var customer) ? customer : throw NotFound($"Fake Mollie has no customer {customerId}.");
 
     private PaymentResponse RequirePayment(string paymentId) =>
-        _payments.TryGetValue(paymentId, out var payment) ? payment : throw Refused($"Fake Mollie has no payment {paymentId}.");
+        _payments.TryGetValue(paymentId, out var payment) ? payment : throw NotFound($"Fake Mollie has no payment {paymentId}.");
 
     private SubscriptionResponse RequireSubscription(string customerId, string subscriptionId) =>
         _subscriptions.TryGetValue(subscriptionId, out var s) && s.CustomerId == customerId
             ? s
-            : throw Refused($"Customer {customerId} has no subscription {subscriptionId}.");
+            : throw NotFound($"Customer {customerId} has no subscription {subscriptionId}.");
 
     private SubscriptionResponse RequireActiveSubscription(string customerId, string subscriptionId)
     {
@@ -461,18 +461,33 @@ public sealed class FakeMollieClient : IMollieClientService
 
     private DateTime Today() => Now().UtcDateTime.Date;
 
-    private static FakeMollieException Refused(string message) => new(message);
+    /// <summary>A request Mollie answers with 422 Unprocessable Entity.</summary>
+    private static FakeMollieException Refused(string message) => new(message, 422);
+
+    /// <summary>A resource Mollie answers with 404 Not Found.</summary>
+    private static FakeMollieException NotFound(string message) => new(message, 404);
 }
 
-/// <summary>What the fake throws where Mollie would answer with an error.</summary>
+/// <summary>
+/// What the fake throws where Mollie would answer with an error. <see cref="Status"/> is the HTTP
+/// status Mollie would send (404 for an unknown resource, 422 for a refused request), so code that
+/// handles Mollie's errors can treat both alike: <c>MollieApiException.Details.Status</c> for the
+/// real client, <see cref="Status"/> here.
+/// </summary>
 public sealed class FakeMollieException : Exception
 {
-    /// <summary>Creates the exception.</summary>
-    public FakeMollieException(string message) : base(message) { }
+    /// <summary>Creates the exception with Mollie's HTTP status.</summary>
+    public FakeMollieException(string message, int status) : base(message) => Status = status;
 
-    /// <summary>Creates the exception.</summary>
-    public FakeMollieException() { }
+    /// <summary>Creates the exception (status 422).</summary>
+    public FakeMollieException(string message) : this(message, 422) { }
 
-    /// <summary>Creates the exception.</summary>
-    public FakeMollieException(string message, Exception innerException) : base(message, innerException) { }
+    /// <summary>Creates the exception (status 422).</summary>
+    public FakeMollieException() : this("Fake Mollie refused the request.", 422) { }
+
+    /// <summary>Creates the exception (status 422).</summary>
+    public FakeMollieException(string message, Exception innerException) : base(message, innerException) => Status = 422;
+
+    /// <summary>The HTTP status Mollie would answer with: 404 or 422.</summary>
+    public int Status { get; }
 }

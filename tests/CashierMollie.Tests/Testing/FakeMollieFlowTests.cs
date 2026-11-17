@@ -221,3 +221,26 @@ public sealed class FakeMollieFlowTests : IDisposable
     }
 }
 
+
+public class FakeMollieStatusTests
+{
+    [Fact]
+    // Callers branch on Mollie's status (404 gone, 422 refused), not on message text.
+    public async Task UnknownIs404_RefusedIs422_AsMollieAnswers()
+    {
+        var mollie = new FakeMollieClient();
+        var missing = await Assert.ThrowsAsync<FakeMollieException>(() => mollie.GetPaymentAsync("tr_none"));
+        Assert.Equal(404, missing.Status);
+
+        var customer = await mollie.CreateCustomerAsync("x");
+        var gone = await Assert.ThrowsAsync<FakeMollieException>(() => mollie.CancelSubscriptionAsync(customer.Id, "sub_none"));
+        Assert.Equal(404, gone.Status);
+
+        await mollie.CreateSubscriptionAsync(customer.Id, 5m, "EUR", "30 days", "x", "https://shop.example/hook",
+            mollie.AddMandate(customer.Id));
+        string id = mollie.Subscriptions.Single().Id;
+        await mollie.CancelSubscriptionAsync(customer.Id, id);
+        var twice = await Assert.ThrowsAsync<FakeMollieException>(() => mollie.CancelSubscriptionAsync(customer.Id, id));
+        Assert.Equal(422, twice.Status);
+    }
+}
