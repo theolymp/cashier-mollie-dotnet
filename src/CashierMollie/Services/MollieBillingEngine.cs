@@ -11,8 +11,8 @@ namespace CashierMollie.Services;
 
 /// <summary>
 /// The default engine: Mollie owns the recurring cycle. Since 0.6.0 a subscription with a price
-/// is registered at Mollie, which charges its gross amount every
-/// <see cref="CashierMollieOptions.CycleDays"/> days; before that this engine registered nothing
+/// is registered at Mollie, which charges its gross amount every cycle
+/// (<see cref="CashierMollieOptions.Interval"/>, a calendar month by default); before that this engine registered nothing
 /// and nothing recurring was ever charged.
 /// </summary>
 /// <remarks>
@@ -232,7 +232,7 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             try
             {
                 await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
-                    mandateId, now.AddDays(_options.CycleDays), ct);
+                    mandateId, BillingCycle.After(now, _options), ct);
                 await _db.SaveChangesAsync(ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -270,7 +270,9 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         else if (NativeSubscriptions.IsPriced(subscription))
         {
             // A priced subscription ends with what was paid for: the running cycle, or the trial.
-            subscription.EndsAt = subscription.CycleStartedAt?.AddDays(_options.CycleDays)
+            subscription.EndsAt = (subscription.CycleStartedAt is { } started
+                    ? NativeSubscriptions.CycleEnd(subscription, started, _options)
+                    : (DateTimeOffset?)null)
                 ?? subscription.TrialEndsAt
                 ?? now;
         }
@@ -435,10 +437,7 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         var values = replaces
             .Select(r =>
             {
-                int days = r.CycleStartedAt.HasValue && r.CycleValueNet.HasValue
-                    ? Money.RemainingWholeDays(r.CycleStartedAt.Value, _options.CycleDays, now)
-                    : 0;
-                decimal value = days == 0 ? 0m : Money.Prorate(r.CycleValueNet!.Value, days, _options.CycleDays);
+                var (days, value) = NativeSubscriptions.UnusedValue(r, _options, now);
                 return (Sub: r, Days: days, Value: value);
             })
             .ToList();
@@ -527,7 +526,7 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         try
         {
             await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription, mandateId,
-                now.AddDays(_options.CycleDays), ct);
+                BillingCycle.After(now, _options), ct);
             await _db.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -678,7 +677,9 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
                 var now = DateTimeOffset.UtcNow;
                 DateTimeOffset start = subscription.TrialEndsAt > now
                     ? subscription.TrialEndsAt.Value
-                    : subscription.CycleStartedAt?.AddDays(_options.CycleDays) ?? now;
+                    : subscription.CycleStartedAt is { } started
+                        ? NativeSubscriptions.CycleEnd(subscription, started, _options)
+                        : now;
                 await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
                     mandateId, start < now ? now : start, ct);
                 changed++;
@@ -769,10 +770,7 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             throw new CashierException($"Subscription {subscription.Id} is not active; nothing is left to end or refund.");
 
         var now = DateTimeOffset.UtcNow;
-        int days = subscription.CycleStartedAt.HasValue && subscription.CycleValueNet.HasValue
-            ? Money.RemainingWholeDays(subscription.CycleStartedAt.Value, _options.CycleDays, now)
-            : 0;
-        decimal value = days == 0 ? 0m : Money.Prorate(subscription.CycleValueNet!.Value, days, _options.CycleDays);
+        var (days, value) = NativeSubscriptions.UnusedValue(subscription, _options, now);
 
         // Stop the charging first: a refund that fails afterwards leaves money owed, while the
         // opposite order could refund a cycle and then charge the next one.

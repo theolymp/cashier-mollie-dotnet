@@ -72,7 +72,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 ## Features
 
 - **Subscription lifecycle** -- create, cancel, resume, and swap subscriptions with a fluent API
-- **Dual billing engine** -- `MollieNative` (default), where Mollie charges a priced subscription every `CycleDays` days, with upgrades credited pro rata and downgrades at the end of the paid cycle; or a self-managed billing cycle (`Managed`) with background processing -- see [Billing Engines](#billing-engines)
+- **Dual billing engine** -- `MollieNative` (default), where Mollie charges a priced subscription every calendar month, with upgrades credited pro rata and downgrades at the end of the paid cycle; or a self-managed billing cycle (`Managed`) with background processing -- see [Billing Engines](#billing-engines)
 - **First payment flow** -- automatic mandate creation via Mollie checkout or direct mandate-based activation
 - **Trial periods** -- built-in support for trial days
 - **Grace periods** -- cancelled subscriptions remain active until the billing period ends
@@ -387,7 +387,8 @@ var result = await _cashier.UpgradeAsync(user, "team", "team", replaces: [proSub
 // result.ChargedNet / ChargedGross / Payment   what was charged now
 ```
 
-- **Value of what is replaced:** `net x remaining whole days / CycleDays`, rounded to the cent half
+- **Value of what is replaced:** `net x remaining whole days / days of the running cycle` (28 to 31
+  for a month), rounded to the cent half
   away from zero, the current day counting as used. `net` is what the running cycle was worth.
 - **Offset:** the summed value is credited, net, against the new plan's net price; the rest is
   taxed once and charged from the owner's mandate. A credit **larger** than the price is not held:
@@ -496,8 +497,13 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
   mandate, and Mollie takes over one cycle later.
 - **On a trial** nothing is charged up front (without a mandate only the
   `PaymentMethodUpdateAmount` check, default 0.01); Mollie's first charge falls on the trial's end.
-- A cycle is `CycleDays` days (default 30), not a calendar month. Every payment Mollie makes
-  arrives through the webhook and is recorded with its net amount and tax rate.
+- A cycle is a **calendar month** (`Interval: Month`, the default), sent to Mollie as `"1 month"`.
+  Mollie charges on the day of the start date each month, or on the month's last day where the
+  month is shorter (31 January, 28 February, 31 March). That day is stored as `CycleAnchorDay`, so
+  a SEPA debit that arrives days late does not move the end of the cycle. `Money` and
+  `BillingCycle` hold the rules; use them on your invoice. `Interval: Days` with `CycleDays` gives
+  fixed cycles, for example one day in a test run. Every payment Mollie makes arrives through the
+  webhook and is recorded with its net amount and tax rate.
 - **Cancel** ends a priced subscription with its paid cycle and stops Mollie at once; **resume**
   registers it again from that date.
 - **`RepriceAsync(ownerId)`** re-resolves every active subscription of an owner and sends a changed
@@ -524,7 +530,7 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
 {
   "CashierMollie": {
     "WebhookUrl": "https://example.com/cashier/webhook",
-    "CycleDays": 30,
+    "Interval": "Month",
     "DefaultTaxRatePercent": 19,
     "Plans": {
       "pro":  { "Amount": "9.99",  "Description": "Pro, monthly" },
@@ -956,7 +962,7 @@ CashierMollie creates seven tables via the `ApplyCashierMollie<TKey>()` model bu
 ### Upgrading to 0.6.0: new columns, and MollieNative starts charging
 
 **Read the behaviour change before you migrate.** From 0.6.0 a `MollieNative` subscription with a
-price is registered at Mollie and charged every `CycleDays` days; up to 0.5.0 nothing recurring was
+price is registered at Mollie and charged every calendar month; up to 0.5.0 nothing recurring was
 charged. Every plan you create subscriptions for needs a price (`CashierMollie:Plans` or your own
 `IPlanPriceResolver<TKey>`), or creating one throws. Subscriptions that already exist have no price
 and keep behaving as before; `RepriceAsync` does **not** price them, because it only touches
@@ -967,7 +973,7 @@ unchanged. One `dotnet ef migrations add` against your context picks up:
 
 | Table | New columns |
 |---|---|
-| `cashier_subscriptions` | `PriceNet`, `TaxRatePercent` (`decimal(18,4)` null), `Description` (`varchar(255)` null), `CycleValueNet` (`decimal(18,4)` null), `ReplacedBySubscriptionId` (`bigint` null) |
+| `cashier_subscriptions` | `PriceNet`, `TaxRatePercent` (`decimal(18,4)` null), `Description` (`varchar(255)` null), `CycleValueNet` (`decimal(18,4)` null), `ReplacedBySubscriptionId` (`bigint` null), `CycleAnchorDay` (`int` null, from 0.6.0-beta.4) |
 | `cashier_payments` | `AmountNet`, `TaxRatePercent` (`decimal(18,4)` null), `CreditNet` (`decimal(18,4)`, default 0), `SettlesPaymentId` (`bigint` null, indexed) |
 
 `past_due` is a new value of `cashier_subscriptions.Status`; if you filter on status yourself, decide
@@ -1020,6 +1026,7 @@ and will not tell you.
 | `Description` | `varchar(255)?` | Statement text sent to Mollie (0.6.0) |
 | `CycleValueNet` | `decimal(18,4)?` | Net value of the paid current cycle; what an upgrade credits pro rata (0.6.0) |
 | `ReplacedBySubscriptionId` | `bigint?` | The subscription that replaced this one in an upgrade (0.6.0) |
+| `CycleAnchorDay` | `int?` | Day of the month Mollie charges a monthly subscription on (0.6.0) |
 | `CreatedAt` | `datetimeoffset` | Record creation timestamp |
 | `UpdatedAt` | `datetimeoffset` | Last update timestamp |
 
@@ -1206,7 +1213,8 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `WebhookUrl` | `string` | `""` (falls back to `WebhookPath`) | **Absolute URL sent to Mollie** for payment callbacks, e.g. `"https://yourdomain.com/cashier/webhook"`. Mollie requires an absolute HTTPS URL -- leaving this empty sends the relative `WebhookPath` instead, which fails once real payments start. |
 | `FirstPaymentRedirectUrl` | `string` | `"/billing/success"` | URL to redirect after the first payment / mandate authorization |
 | `GracePeriodDays` | `int` | `30` | Number of days a cancelled **unpriced** subscription remains accessible. A priced one ends with its paid cycle |
-| `CycleDays` | `int` | `30` | Length of a billing cycle in days, sent to Mollie as the interval `"{CycleDays} days"` (0.6.0) |
+| `Interval` | `BillingInterval` | `Month` | `Month`: a calendar month, sent to Mollie as `"1 month"`. `Days`: `CycleDays` days (0.6.0) |
+| `CycleDays` | `int` | `30` | Cycle length when `Interval` is `Days`, sent as `"{CycleDays} days"`; ignored for months (0.6.0) |
 | `DefaultTaxRatePercent` | `decimal` | `0` | Tax rate the default `ConfigPlanPriceResolver` uses for a plan under `CashierMollie:Plans` without its own `TaxRatePercent` (0.6.0) |
 | `BillingEngine` | `string` | `"MollieNative"` | Billing strategy: `"MollieNative"` or `"Managed"` |
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |

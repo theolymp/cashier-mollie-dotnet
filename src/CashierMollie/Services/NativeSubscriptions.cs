@@ -31,7 +31,7 @@ internal static class NativeSubscriptions
         && subscription.MollieSubscriptionId != RegisteringMarker;
 
     /// <summary>The Mollie interval for one cycle.</summary>
-    internal static string Interval(CashierMollieOptions options) => $"{options.CycleDays} days";
+    internal static string Interval(CashierMollieOptions options) => BillingCycle.MollieInterval(options);
 
     /// <summary>
     /// True when the subscription carries a price and should therefore be charged by Mollie.
@@ -130,9 +130,9 @@ internal static class NativeSubscriptions
             .FirstOrDefaultAsync(ct);
 
     /// <summary>
-    /// Registers the subscription at Mollie: its gross price every <c>CycleDays</c> days, the
-    /// first charge on <paramref name="startDate"/>. Stores the Mollie id on the subscription;
-    /// the caller saves.
+    /// Registers the subscription at Mollie: its gross price every cycle, the first charge on
+    /// <paramref name="startDate"/>, whose day of the month becomes the anchor of monthly cycles.
+    /// Stores the Mollie id and the anchor on the subscription; the caller saves.
     /// </summary>
     internal static async Task StartAtMollieAsync<TKey>(IMollieClientService mollie,
         CashierMollieOptions options, Subscription<TKey> subscription, string mandateId,
@@ -160,5 +160,22 @@ internal static class NativeSubscriptions
             ct);
 
         subscription.MollieSubscriptionId = response.Id;
+        subscription.CycleAnchorDay = startDate.UtcDateTime.Day;
+    }
+
+    /// <summary>When the paid cycle of <paramref name="subscription"/> ends, from its anchor.</summary>
+    internal static DateTimeOffset CycleEnd<TKey>(Subscription<TKey> subscription, DateTimeOffset cycleStartedAt,
+        CashierMollieOptions options) where TKey : IEquatable<TKey> =>
+        BillingCycle.End(cycleStartedAt, subscription.CycleAnchorDay, options);
+
+    /// <summary>The unused value of the paid cycle at <paramref name="now"/>, and its whole days left.</summary>
+    internal static (int Days, decimal Value) UnusedValue<TKey>(Subscription<TKey> subscription,
+        CashierMollieOptions options, DateTimeOffset now) where TKey : IEquatable<TKey>
+    {
+        if (!subscription.CycleStartedAt.HasValue || !subscription.CycleValueNet.HasValue)
+            return (0, 0m);
+        var (remaining, length) = BillingCycle.RemainingDays(subscription.CycleStartedAt.Value,
+            subscription.CycleAnchorDay, options, now);
+        return remaining == 0 ? (0, 0m) : (remaining, Money.Prorate(subscription.CycleValueNet.Value, remaining, length));
     }
 }

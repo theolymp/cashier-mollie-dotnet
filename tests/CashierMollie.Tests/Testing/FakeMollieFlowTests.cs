@@ -105,9 +105,14 @@ public sealed class FakeMollieFlowTests : IDisposable
         var atMollie = Assert.Single(_mollie.Subscriptions);
         Assert.Equal(sub.MollieSubscriptionId, atMollie.Id);
         Assert.Equal("11.89", atMollie.Amount.Value);
-        Assert.Equal("30 days", atMollie.Interval);
+        Assert.Equal("1 month", atMollie.Interval);
         Assert.Equal(checkout.MandateId, atMollie.MandateId);
-        Assert.Equal(DateTime.UtcNow.Date.AddDays(30), atMollie.StartDate!.Value.Date);
+        // The calendar month, clamped: activated on the 31st, Mollie starts on the 30th/28th.
+        var today = DateTime.UtcNow.Date;
+        var next = today.AddMonths(1);
+        Assert.Equal(new DateTime(next.Year, next.Month, Math.Min(today.Day, DateTime.DaysInMonth(next.Year, next.Month))),
+            atMollie.StartDate!.Value.Date);
+        Assert.Equal(atMollie.StartDate.Value.Day, sub.CycleAnchorDay);
     }
 
     [Fact]
@@ -137,7 +142,11 @@ public sealed class FakeMollieFlowTests : IDisposable
         var result = await With(sp => sp.GetRequiredService<ICashierService<string>>()
             .UpgradeAsync(_owner, "pro", "pro", [starter]));
 
-        decimal credit = Money.Prorate(4.99m, 29, 30);
+        // Days of this calendar month, not a fixed 30: the current day counts as used.
+        var (left, length) = BillingCycle.RemainingDays(starter.CycleStartedAt!.Value, starter.CycleAnchorDay,
+            new CashierMollieOptions(), DateTimeOffset.UtcNow);
+        Assert.Equal(length - 1, left);
+        decimal credit = Money.Prorate(4.99m, left, length);
         Assert.Equal(credit, result.CreditAppliedNet);
         Assert.Equal(Money.Gross(9.99m - credit, 19m), result.ChargedGross);
         Assert.Empty(result.Incomplete);
@@ -190,7 +199,11 @@ public sealed class FakeMollieFlowTests : IDisposable
         var result = await With(sp => sp.GetRequiredService<ICashierService<string>>()
             .CancelImmediatelyWithRefundAsync(_owner, "main"));
 
-        Assert.Equal(29, result.RemainingDays);
+        var sub = await Sub("main");
+        var (left, length) = BillingCycle.RemainingDays(sub.CycleStartedAt!.Value, sub.CycleAnchorDay,
+            new CashierMollieOptions(), DateTimeOffset.UtcNow);
+        Assert.Equal(length - 1, result.RemainingDays);
+        Assert.InRange(length, 28, 31);
         Assert.Equal(0m, result.UnrefundedNet);
         var refund = Assert.Single(_mollie.Refunds);
         Assert.Equal(result.RefundedGross.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), refund.Amount.Value);

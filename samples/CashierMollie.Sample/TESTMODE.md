@@ -70,10 +70,11 @@ counts in the report.
 
 ## Timing
 
-- `upgrade`, `surplus`, `earlyend` and `pastdue` run with `CycleDays` 30 and finish within
-  minutes. The credit counts whole days, and the current day counts as used, so on the day of the
-  first payment 29 days are left.
-- `downgrade` runs with `TestMode:ShortCycleDays` (default 1), so Mollie's next charge comes one
+- `upgrade`, `surplus`, `earlyend` and `pastdue` run with the monthly cycle (Mollie interval
+  `1 month`) and finish within
+  minutes. The credit counts whole days over the days of the running month (28 to 31), and the
+  current day counts as used, so on the day of the first payment one day less than the month is left.
+- `downgrade` runs with day cycles of `TestMode:ShortCycleDays` (default 1), so Mollie's next charge comes one
   day later. Run `sync` after that charge appears, set it to paid, and `sync` once more. Whether
   Mollie accepts an interval of `1 days` has not been checked against the API yet. If Mollie
   refuses it, the check "registered at Mollie" of `downgrade` fails at start (the library logs the

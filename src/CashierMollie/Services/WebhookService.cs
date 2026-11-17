@@ -386,7 +386,9 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
 
         DateTimeOffset start = subscription.TrialEndsAt > now
             ? subscription.TrialEndsAt.Value
-            : (subscription.CycleStartedAt ?? now).AddDays(_options.CycleDays);
+            : subscription.CycleStartedAt is { } started
+                ? NativeSubscriptions.CycleEnd(subscription, started, _options)
+                : BillingCycle.After(now, _options);
 
         try
         {

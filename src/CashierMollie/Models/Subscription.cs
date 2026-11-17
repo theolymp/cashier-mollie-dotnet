@@ -85,6 +85,14 @@ public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKe
     /// <summary>The subscription that replaced this one in an upgrade, or null.</summary>
     public long? ReplacedBySubscriptionId { get; set; }
 
+    /// <summary>
+    /// Day of the month Mollie charges a monthly subscription on: the day of the start date it was
+    /// registered with (0.6.0). A cycle ends on this day of the next month, or on the month's last
+    /// day where the month is shorter, however late a payment arrived. Null before registration;
+    /// the day the cycle started is used then.
+    /// </summary>
+    public int? CycleAnchorDay { get; set; }
+
     /// <summary>Optimistic concurrency token, incremented on each update.</summary>
     [ConcurrencyCheck]
     public uint RowVersion { get; set; }
