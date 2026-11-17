@@ -133,7 +133,9 @@ public sealed class FakeMollieClient : IMollieClientService
             payment.SubscriptionId = subscription.Id;
             payment.MandateId = subscription.MandateId;
             subscription.TimesRemaining = subscription.TimesRemaining is > 0 ? subscription.TimesRemaining - 1 : subscription.TimesRemaining;
-            subscription.NextPaymentDate = NextDate(subscription.NextPaymentDate ?? Today(), subscription.Interval);
+            // Mollie keeps a monthly subscription on its start date's day, or the month's last day.
+            subscription.NextPaymentDate = NextDate(subscription.NextPaymentDate ?? Today(), subscription.Interval,
+                subscription.StartDate?.Day);
         }
 
         return status == "pending" ? payment : SetPaymentStatus(payment.Id, status);
@@ -437,7 +439,7 @@ public sealed class FakeMollieClient : IMollieClientService
     }
 
     /// <summary>Mollie's interval format: "&lt;n&gt; days|weeks|months".</summary>
-    private static DateTime NextDate(DateTime from, string interval)
+    private static DateTime NextDate(DateTime from, string interval, int? anchorDay = null)
     {
         string[] parts = interval.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out int n) || n < 1)
@@ -446,10 +448,13 @@ public sealed class FakeMollieClient : IMollieClientService
         {
             "day" or "days" => from.AddDays(n),
             "week" or "weeks" => from.AddDays(7 * n),
-            "month" or "months" => from.AddMonths(n),
+            "month" or "months" => OnAnchor(from.AddMonths(n), anchorDay ?? from.Day),
             _ => throw Refused($"Interval '{interval}' is not '<n> days|weeks|months'."),
         };
     }
+
+    private static DateTime OnAnchor(DateTime month, int anchorDay) =>
+        new(month.Year, month.Month, Math.Min(anchorDay, DateTime.DaysInMonth(month.Year, month.Month)), 0, 0, 0, month.Kind);
 
     private static decimal ParseAmount(Amount amount) =>
         decimal.Parse(amount.Value, NumberStyles.Number, CultureInfo.InvariantCulture);

@@ -55,7 +55,7 @@ internal static class TestModeRun
         }
 
         string dataDirectory = config["TestMode:DataDirectory"] ?? "testmode-data";
-        using var normal = Build(config, dataDirectory, int.Parse(config["CashierMollie:CycleDays"] ?? "30", CultureInfo.InvariantCulture));
+        using var normal = Build(config, dataDirectory, cycleDays: null); // monthly, as configured
         using var shortCycle = Build(config, dataDirectory, int.Parse(config["TestMode:ShortCycleDays"] ?? "1", CultureInfo.InvariantCulture));
         await normal.EnsureDatabasesAsync();
         ServiceProvider For(Customer c) => c.Scenario == "downgrade" ? shortCycle : normal;
@@ -129,11 +129,19 @@ internal static class TestModeRun
         return null;
     }
 
-    private static ServiceProvider Build(IConfiguration config, string dataDirectory, int cycleDays)
+    /// <summary>The services, monthly as configured, or with cycles of <paramref name="cycleDays"/> days.</summary>
+    private static ServiceProvider Build(IConfiguration config, string dataDirectory, int? cycleDays)
     {
+        var overrides = cycleDays is { } days
+            ? new Dictionary<string, string?>
+            {
+                ["CashierMollie:Interval"] = nameof(BillingInterval.Days),
+                ["CashierMollie:CycleDays"] = days.ToString(CultureInfo.InvariantCulture),
+            }
+            : [];
         var effective = new ConfigurationBuilder()
             .AddConfiguration(config)
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["CashierMollie:CycleDays"] = cycleDays.ToString(CultureInfo.InvariantCulture) })
+            .AddInMemoryCollection(overrides)
             .Build();
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Warning));
@@ -243,7 +251,7 @@ internal static class TestModeRun
         var cashier = sp.GetRequiredService<ICashierService<int>>();
         var mollie = sp.GetRequiredService<IMollieClientService>();
         var prices = sp.GetRequiredService<IPlanPriceResolver<int>>();
-        int cycleDays = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CashierMollieOptions>>().Value.CycleDays;
+        var cycle = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CashierMollieOptions>>().Value;
 
         var c = await db.Customers.SingleAsync(x => x.Id == customerId);
         string s = c.Scenario!;
@@ -281,8 +289,8 @@ internal static class TestModeRun
             case ("upgrade", 1):
             {
                 var pro = await prices.ResolveAsync(c.Id, "pro");
-                int days = Money.RemainingWholeDays(main.CycleStartedAt!.Value, cycleDays, now);
-                decimal credit = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, cycleDays);
+                var (days, length) = BillingCycle.RemainingDays(main.CycleStartedAt!.Value, main.CycleAnchorDay, cycle, now);
+                decimal credit = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, length);
                 var r = await cashier.UpgradeAsync(c, "pro", "pro", [main]);
                 c.Step = 2; // saved before any check: the money has moved, never repeat this
                 await db.SaveChangesAsync();
@@ -318,8 +326,8 @@ internal static class TestModeRun
             case ("surplus", 1):
             {
                 var starter = await prices.ResolveAsync(c.Id, "starter");
-                int days = Money.RemainingWholeDays(main.CycleStartedAt!.Value, cycleDays, now);
-                decimal credit = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, cycleDays);
+                var (days, length) = BillingCycle.RemainingDays(main.CycleStartedAt!.Value, main.CycleAnchorDay, cycle, now);
+                decimal credit = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, length);
                 var r = await cashier.UpgradeAsync(c, "starter", "starter", [main]);
                 c.Step = 2;
                 await db.SaveChangesAsync();
@@ -371,8 +379,8 @@ internal static class TestModeRun
             }
             case ("earlyend", 1):
             {
-                int days = Money.RemainingWholeDays(main.CycleStartedAt!.Value, cycleDays, now);
-                decimal value = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, cycleDays);
+                var (days, length) = BillingCycle.RemainingDays(main.CycleStartedAt!.Value, main.CycleAnchorDay, cycle, now);
+                decimal value = Money.Prorate(main.CycleValueNet ?? main.PriceNet!.Value, days, length);
                 var r = await cashier.CancelImmediatelyWithRefundAsync(c, Sub);
                 c.Step = 2;
                 await db.SaveChangesAsync();

@@ -164,8 +164,14 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         else if (molliePayment.Status == "paid" && subscription != null && isCyclePayment && statusChanged)
         {
             // A new cycle Mollie charged on its own. A downgrade sent earlier takes effect here:
-            // this is the first charge at the new price.
-            subscription.CycleStartedAt = DateTimeOffset.UtcNow;
+            // this is the first charge at the new price. The cycle starts on the day it was due
+            // (Mollie creates the charge on its date), not on the day a late SEPA debit arrived.
+            // Only a due date after the previous cycle start and not in the future is believed.
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            subscription.CycleStartedAt = DueDate(molliePayment.CreatedAt) is { } due
+                && due <= now && (subscription.CycleStartedAt is not { } previous || due > previous)
+                ? due
+                : now;
             subscription.CycleValueNet = localPayment.AmountNet;
             if (subscription.NextPlan != null)
             {
@@ -348,6 +354,14 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
     /// is paid. Idempotent: it does nothing for a subscription that is already registered, has
     /// no price, or runs on the Managed engine.
     /// </summary>
+    /// <summary>Mollie's creation time as UTC, whatever kind the deserialiser gave it.</summary>
+    private static DateTimeOffset? DueDate(DateTime? createdAt) => createdAt switch
+    {
+        null => null,
+        { Kind: DateTimeKind.Local } d => new DateTimeOffset(d.ToUniversalTime(), TimeSpan.Zero),
+        { } d => new DateTimeOffset(DateTime.SpecifyKind(d, DateTimeKind.Utc), TimeSpan.Zero),
+    };
+
     private async Task EnsureRegisteredAtMollieAsync(Payment<TKey> payment, CancellationToken ct)
     {
         if (_options.BillingEngine != BillingEngineType.MollieNative || !payment.SubscriptionId.HasValue)
@@ -386,7 +400,9 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
 
         DateTimeOffset start = subscription.TrialEndsAt > now
             ? subscription.TrialEndsAt.Value
-            : (subscription.CycleStartedAt ?? now).AddDays(_options.CycleDays);
+            : subscription.CycleStartedAt is { } started
+                ? NativeSubscriptions.CycleEnd(subscription, started, _options)
+                : BillingCycle.After(now, _options);
 
         try
         {

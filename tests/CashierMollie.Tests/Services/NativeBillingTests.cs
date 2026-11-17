@@ -34,7 +34,8 @@ public sealed class NativeBillingTests : IDisposable
         .With("module.a", 3.99m).With("module.b", 3.99m).With("module.c", 3.99m)
         .With("module.d", 3.99m).With("module.e", 3.99m)
         .With("suite", 9.99m).With("all", 24.99m);
-    private readonly CashierMollieOptions _options = new() { WebhookUrl = WebhookUrl };
+    // The arithmetic here is pinned on a fixed 30-day cycle; monthly cycles have MonthlyCycleTests.
+    private readonly CashierMollieOptions _options = new() { WebhookUrl = WebhookUrl, Interval = BillingInterval.Days, CycleDays = 30 };
     private readonly MollieBillingEngine<string> _engine;
     private readonly WebhookService<string> _webhook;
 

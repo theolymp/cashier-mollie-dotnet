@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed -- the cycle is a calendar month
+- **`MollieNative` charges monthly**: the new `CashierMollieOptions.Interval` defaults to
+  `BillingInterval.Month`, sent to Mollie as `"1 month"` instead of `"30 days"` (12 charges a year,
+  not 12.17). Mollie charges on the start date's day, or the month's last day where it is shorter;
+  that day is stored as `cashier_subscriptions.CycleAnchorDay` (new, `int` null), so a late SEPA
+  debit does not move the cycle's end. Cancel, resume and registration follow it.
+- **The unused value is prorated over the days of the running month** (28 to 31), not over 30:
+  `net x remaining whole days / days of the cycle`. `BillingCycle` holds the rules
+  (`End`, `RemainingDays`, `After`, `MollieInterval`); `Money` is unchanged.
+- `Interval = Days` with `CycleDays` keeps fixed cycles, for a short test run.
+- A cycle Mollie charges starts on its due date (the day Mollie created the charge), not on the
+  day a late SEPA debit was reported paid. A first cycle from the 29th to 31st runs to the clamped
+  day and is prorated over its own length (31 January to 28 February: 28 days).
+- Subscriptions registered at Mollie as `"30 days"` before this change keep that interval at Mollie
+  while the library now computes months; none exist in a released consumer (checkout was off).
+- Schema: `cashier_subscriptions.CycleAnchorDay` (`int`, null). Additive.
+
 ### Changed
 - `FakeMollieException.Status` carries the HTTP status Mollie would answer with (404 unknown resource,
   422 refused request), so error handling can branch on it as on `MollieApiException.Details.Status`.

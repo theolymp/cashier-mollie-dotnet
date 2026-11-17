@@ -62,15 +62,16 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// </summary>
     /// <remarks>
     /// <para>For each replaced subscription the unused value is <c>net x remaining whole days /
-    /// CycleDays</c>, rounded to the cent, with the current day counted as used. Its net is the
+    /// days of the running cycle</c> (28 to 31 for a monthly cycle, see <see cref="Models.BillingCycle"/>),
+    /// rounded to the cent, with the current day counted as used. Its net is the
     /// last paid cycle: the payment's <c>AmountNet</c> plus any <c>CreditNet</c> it carried.</para>
     /// <para>With <see cref="UpgradeOptions.OffsetCredit"/> the summed value is offset, net,
     /// against the new plan's net price; the remainder is taxed once and charged from the
     /// owner's mandate. A credit larger than the price is not held: the surplus is refunded onto
     /// the replaced subscriptions' last payments, at the tax rate each was charged at.</para>
     /// <para>The replaced subscriptions end now, at Mollie as well. The new subscription is
-    /// active at once, starts a fresh cycle today, and Mollie charges its full price from
-    /// <c>CycleDays</c> days later.</para>
+    /// active at once, starts a fresh cycle today, and Mollie charges its full price one cycle
+    /// later, on the same day of the next month.</para>
     /// <para>Which subscriptions an upgrade replaces is the caller's decision: this library knows
     /// plan ids, not what a plan contains.</para>
     /// </remarks>

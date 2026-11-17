@@ -57,9 +57,16 @@ public class CashierMollieOptions
     public int GracePeriodDays { get; set; } = 30;
 
     /// <summary>
-    /// Length of one billing cycle in days, sent to Mollie as the interval <c>"{CycleDays} days"</c>.
-    /// Default 30: a fixed length rather than a calendar month, so that the unused value of a
-    /// cycle is the same calculation in every month.
+    /// The billing cycle of the MollieNative engine. Default <see cref="BillingInterval.Month"/>:
+    /// a calendar month, sent to Mollie as <c>"1 month"</c>, charged on the same day each month
+    /// (the last day where the month is shorter). <see cref="BillingInterval.Days"/> uses
+    /// <see cref="CycleDays"/>, for example to make cycles short in a test run.
+    /// </summary>
+    public BillingInterval Interval { get; set; } = BillingInterval.Month;
+
+    /// <summary>
+    /// Length of one cycle in days when <see cref="Interval"/> is <see cref="BillingInterval.Days"/>,
+    /// sent to Mollie as <c>"{CycleDays} days"</c>. Default 30. Ignored for monthly cycles.
     /// </summary>
     public int CycleDays { get; set; } = 30;
 
@@ -107,4 +114,14 @@ public enum BillingEngineType
 
     /// <summary>Manage billing cycles locally. The library creates on-demand payments via Mollie.</summary>
     Managed
+}
+
+/// <summary>How the MollieNative engine measures a billing cycle.</summary>
+public enum BillingInterval
+{
+    /// <summary>A calendar month, anchored on the day Mollie charges.</summary>
+    Month,
+
+    /// <summary><see cref="CashierMollieOptions.CycleDays"/> days.</summary>
+    Days,
 }
