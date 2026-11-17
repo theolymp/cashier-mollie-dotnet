@@ -1,0 +1,1 @@
+Sentry:Dsn = "https://0123456789abcdefffffffffffffffff@sentry.example.invalid/42"
