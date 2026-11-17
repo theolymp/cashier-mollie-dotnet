@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- `FakeMollieException.Status` carries the HTTP status Mollie would answer with (404 unknown resource,
+  422 refused request), so error handling can branch on it as on `MollieApiException.Details.Status`.
+
 ## [0.6.0-beta.3] - 2026-11-16
 
 ### Added -- an in-memory Mollie for tests
