@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.4] - 2026-11-17
+
 ### Changed -- the cycle is a calendar month
 - **`MollieNative` charges monthly**: the new `CashierMollieOptions.Interval` defaults to
   `BillingInterval.Month`, sent to Mollie as `"1 month"` instead of `"30 days"` (12 charges a year,
