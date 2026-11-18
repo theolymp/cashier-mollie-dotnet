@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- `SubscriptionPastDue.NeverPaid`: true when the subscription has no paid payment, i.e. the first
+  debit from an existing mandate failed. `past_due` means "unpaid", not "dunned"; the flag lets a
+  consumer skip dunning for a sign-up that never went through. The status itself is unchanged.
+
 ## [0.6.0-beta.4] - 2026-11-17
 
 ### Changed -- the cycle is a calendar month
