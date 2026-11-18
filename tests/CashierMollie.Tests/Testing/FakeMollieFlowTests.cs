@@ -166,7 +166,7 @@ public sealed class FakeMollieFlowTests : IDisposable
         await Webhook(failed.Id);
 
         Assert.Equal(SubscriptionStatus.PastDue, (await Sub("main")).Status);
-        Assert.Contains(_events, e => e is SubscriptionPastDue<string>);
+        Assert.False(Assert.Single(_events.OfType<SubscriptionPastDue<string>>()).NeverPaid);
 
         var pay = await With(sp => sp.GetRequiredService<ICashierService<string>>().PayOutstandingAsync(_owner, "main"));
         Assert.Equal(11.89m, pay.Amount);
@@ -178,6 +178,22 @@ public sealed class FakeMollieFlowTests : IDisposable
         Assert.Contains(_events, e => e is SubscriptionPaymentRecovered<string>);
         Assert.Equal(settlement.MandateId, atMollie.MandateId);
         Assert.NotEqual(failed.MandateId, atMollie.MandateId);
+    }
+
+    [Fact]
+    // From an existing mandate the subscription is active at once; if its first debit fails it is
+    // past_due like any default, and the event says nothing was ever paid.
+    public async Task AFailedFirstDebit_IsPastDue_AndMarkedNeverPaid()
+    {
+        await With(sp => sp.GetRequiredService<ICashierService<string>>().GetOrCreateMollieCustomerAsync(_owner));
+        _owner.MollieMandateId = _mollie.AddMandate(_owner.MollieCustomerId!);
+        await With(sp => sp.GetRequiredService<ICashierService<string>>().NewSubscription(_owner, "main", "pro").CreateAsync());
+        var first = _mollie.Payments[^1];
+        _mollie.SetPaymentStatus(first.Id, "failed");
+        await Webhook(first.Id);
+
+        Assert.Equal(SubscriptionStatus.PastDue, (await Sub("main")).Status);
+        Assert.True(Assert.Single(_events.OfType<SubscriptionPastDue<string>>()).NeverPaid);
     }
 
     [Fact]

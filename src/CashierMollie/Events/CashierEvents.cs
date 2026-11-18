@@ -38,9 +38,19 @@ public record SubscriptionUpgraded<TKey>(UpgradeResult<TKey> Result, TKey OwnerI
 /// <summary>
 /// Dispatched when a cycle payment failed and the subscription is now <c>past_due</c>: not active
 /// until the outstanding amount is paid (see <see cref="Interfaces.ICashierService{TKey}.PayOutstandingAsync"/>).
+/// <c>past_due</c> means "a priced payment is unpaid", not "the customer was dunned": a
+/// subscription created from an existing mandate is active at once, so its very first debit can
+/// fail too. <see cref="NeverPaid"/> tells that case apart.
 /// </summary>
 public record SubscriptionPastDue<TKey>(Subscription<TKey> Subscription, Payment<TKey> FailedPayment, TKey OwnerId)
-    where TKey : IEquatable<TKey>;
+    where TKey : IEquatable<TKey>
+{
+    /// <summary>
+    /// True when no payment of this subscription was ever paid: the first debit failed. A consumer
+    /// may treat that as a sign-up that did not go through rather than as a debt to dun.
+    /// </summary>
+    public bool NeverPaid { get; init; }
+}
 
 /// <summary>Dispatched when the last outstanding amount of a <c>past_due</c> subscription was paid
 /// and it is active again.</summary>

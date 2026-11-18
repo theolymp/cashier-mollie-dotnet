@@ -280,8 +280,10 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         {
             subscription.Status = SubscriptionStatus.PastDue;
             await _db.SaveChangesAsync(ct);
+            bool neverPaid = !await _db.Payments.AnyAsync(
+                p => p.SubscriptionId == subscription.Id && p.Status == "paid", ct);
             await _eventDispatcher.DispatchAsync(
-                new SubscriptionPastDue<TKey>(subscription, outstanding[^1], subscription.OwnerId), ct);
+                new SubscriptionPastDue<TKey>(subscription, outstanding[^1], subscription.OwnerId) { NeverPaid = neverPaid }, ct);
         }
         else if (outstanding.Count == 0 && subscription.Status == SubscriptionStatus.PastDue)
         {
