@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.5] - 2026-11-20
+
 ### Fixed
 
 - The webhook answers 200 for a payment id Mollie does not know (404) and logs it at Debug,
