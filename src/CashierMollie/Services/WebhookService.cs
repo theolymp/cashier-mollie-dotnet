@@ -6,6 +6,7 @@ using CashierMollie.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mollie.Api.Models.Payment.Response;
 
 namespace CashierMollie.Services;
 
@@ -56,11 +57,26 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         Message = "Could not cancel ended subscription {SubscriptionId} at Mollie again.")]
     private partial void LogCancelAgainFailed(long subscriptionId, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Webhook for payment {PaymentId}, which Mollie does not know (404); ignored.")]
+    private partial void LogUnknownPayment(string paymentId);
+
     /// <inheritdoc />
     public async Task HandlePaymentAsync(string molliePaymentId, CancellationToken ct = default)
     {
-        // Fetch payment details from Mollie
-        var molliePayment = await _mollieClient.GetPaymentAsync(molliePaymentId, ct);
+        // Fetch payment details from Mollie. The webhook is reachable by anyone, so an id Mollie
+        // does not know is someone else's guess, not a failure: nothing to do, and nothing for
+        // Mollie to retry. Every other error (401, 5xx, timeout) still throws, so Mollie retries.
+        PaymentResponse molliePayment;
+        try
+        {
+            molliePayment = await _mollieClient.GetPaymentAsync(molliePaymentId, ct);
+        }
+        catch (Exception ex) when (IsNotFound(ex))
+        {
+            LogUnknownPayment(molliePaymentId);
+            return;
+        }
 
         // Find local payment record
         var localPayment = await _db.Payments
@@ -356,6 +372,14 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
     /// is paid. Idempotent: it does nothing for a subscription that is already registered, has
     /// no price, or runs on the Managed engine.
     /// </summary>
+    /// <summary>Mollie answered 404: from the API client, or from the in-memory fake.</summary>
+    private static bool IsNotFound(Exception ex) => ex switch
+    {
+        Mollie.Api.Client.MollieApiException { Details.Status: 404 } => true,
+        Testing.FakeMollieException { Status: 404 } => true,
+        _ => false,
+    };
+
     /// <summary>Mollie's creation time as UTC, whatever kind the deserialiser gave it.</summary>
     private static DateTimeOffset? DueDate(DateTime? createdAt) => createdAt switch
     {

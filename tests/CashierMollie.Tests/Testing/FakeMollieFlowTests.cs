@@ -181,6 +181,34 @@ public sealed class FakeMollieFlowTests : IDisposable
     }
 
     [Fact]
+    // The webhook is public: an id Mollie answers 404 for is ignored, not an error to retry.
+    public async Task AWebhookForAPaymentMollieDoesNotKnow_IsIgnored()
+    {
+        await Webhook("tr_doesnotexist");
+        Assert.Empty(await Payments());
+        Assert.Empty(_events);
+    }
+
+    [Fact]
+    // Through the middleware: 200 for the unknown id, so neither Mollie nor a prober gets a 500.
+    public async Task TheMiddlewareAnswers200ForAnUnknownPayment()
+    {
+        using var scope = _services.CreateScope();
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Method = "POST";
+        context.Request.Path = "/cashier/webhook";
+        context.Request.ContentType = "application/x-www-form-urlencoded";
+        context.Request.Body = new MemoryStream("id=tr_x"u8.ToArray());
+        var options = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<CashierMollieOptions>>();
+        context.Request.Path = options.Value.WebhookPath;
+        var middleware = new CashierMollie.Middleware.CashierWebhookMiddleware(_ => Task.CompletedTask, options);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(200, context.Response.StatusCode);
+    }
+
+    [Fact]
     // From an existing mandate the subscription is active at once; if its first debit fails it is
     // past_due like any default, and the event says nothing was ever paid.
     public async Task AFailedFirstDebit_IsPastDue_AndMarkedNeverPaid()

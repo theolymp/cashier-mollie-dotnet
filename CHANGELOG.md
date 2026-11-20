@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- The webhook answers 200 for a payment id Mollie does not know (404) and logs it at Debug,
+  instead of 500. It is reachable by anyone, so such an id is a guess, not a failure to retry.
+  Every other error (401, 5xx, timeout) still answers 500, so Mollie retries.
+
 ### Added
 
 - `SubscriptionPastDue.NeverPaid`: true when the subscription has no paid payment, i.e. the first
