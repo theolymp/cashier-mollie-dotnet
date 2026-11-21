@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.6] - 2026-11-21
+
 ### Added
 
 - A `past_due` subscription can be cancelled (`CancelAsync` / `CancelImmediatelyAsync`). Mollie
