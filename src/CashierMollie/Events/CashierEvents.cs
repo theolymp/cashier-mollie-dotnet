@@ -16,7 +16,10 @@ public record OrderPaymentFailed<TKey>(Payment<TKey> Payment, Subscription<TKey>
 public record SubscriptionCreated<TKey>(Subscription<TKey> Subscription, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
-/// <summary>Dispatched when a subscription is cancelled.</summary>
+/// <summary>
+/// Dispatched when a subscription is cancelled. A subscription cancelled while <c>past_due</c> keeps
+/// that status here (and still owes its outstanding amount); every other one is <c>cancelled</c>.
+/// </summary>
 public record SubscriptionCancelled<TKey>(Subscription<TKey> Subscription, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 

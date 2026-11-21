@@ -268,8 +268,11 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
-        if (immediately)
+        bool pastDue = subscription.Status == SubscriptionStatus.PastDue;
+        if (immediately || pastDue)
         {
+            // past_due: access is already locked and the running cycle is unpaid, so there is no
+            // paid time left to run out. It ends now; the debt stays.
             subscription.EndsAt = now;
         }
         else if (NativeSubscriptions.IsPriced(subscription))
@@ -292,7 +295,11 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
         // would keep charging through.
         await CancelAtMollieAsync(subscription, ct);
 
-        subscription.Status = SubscriptionStatus.Cancelled;
+        // A past_due subscription stays past_due: the outstanding amount is still owed and payable
+        // through PayOutstandingAsync. Once it is paid the subscription becomes cancelled, not
+        // active, and nothing registers it at Mollie again (it has an end date).
+        if (!pastDue)
+            subscription.Status = SubscriptionStatus.Cancelled;
         await _db.SaveChangesAsync(ct);
 
         await _eventDispatcher.DispatchAsync(

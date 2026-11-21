@@ -276,7 +276,8 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
                 await _db.SaveChangesAsync(ct);
             }
 
-            if (subscription.Status == SubscriptionStatus.PastDue && !string.IsNullOrEmpty(payment.MollieMandateId)
+            if (subscription.Status == SubscriptionStatus.PastDue && !subscription.EndsAt.HasValue
+                && !string.IsNullOrEmpty(payment.MollieMandateId)
                 && NativeSubscriptions.IsRegistered(subscription) && !string.IsNullOrEmpty(subscription.MollieCustomerId))
             {
                 try
@@ -303,7 +304,8 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         }
         else if (outstanding.Count == 0 && subscription.Status == SubscriptionStatus.PastDue)
         {
-            subscription.Status = SubscriptionStatus.Active;
+            // Cancelled while past_due: settling the debt does not bring it back.
+            subscription.Status = subscription.EndsAt.HasValue ? SubscriptionStatus.Cancelled : SubscriptionStatus.Active;
             await _db.SaveChangesAsync(ct);
             await _eventDispatcher.DispatchAsync(
                 new SubscriptionPaymentRecovered<TKey>(subscription, payment, subscription.OwnerId), ct);

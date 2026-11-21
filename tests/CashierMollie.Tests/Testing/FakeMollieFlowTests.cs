@@ -225,6 +225,40 @@ public sealed class FakeMollieFlowTests : IDisposable
     }
 
     [Fact]
+    // Cancelling while past_due: Mollie stops at once, the debt stays payable, and paying it does
+    // not revive the subscription.
+    public async Task CancellingAPastDueSubscription_StopsMollie_AndKeepsTheDebtPayable()
+    {
+        await PaidSubscription("pro");
+        var atMollie = _mollie.Subscriptions.Single();
+        var failed = _mollie.ChargeSubscription(atMollie.Id, "failed");
+        await Webhook(failed.Id);
+
+        await With(async sp => { await sp.GetRequiredService<ICashierService<string>>().CancelAsync(_owner, "main"); return true; });
+        var cancelled = await Sub("main");
+        Assert.Equal(SubscriptionStatus.PastDue, cancelled.Status);
+        Assert.True(cancelled.EndsAt <= DateTimeOffset.UtcNow);
+        Assert.Equal("canceled", atMollie.Status);
+        Assert.Equal(SubscriptionStatus.PastDue,
+            Assert.Single(_events.OfType<SubscriptionCancelled<string>>()).Subscription.Status);
+
+        var pay = await With(sp => sp.GetRequiredService<ICashierService<string>>().PayOutstandingAsync(_owner, "main"));
+        Assert.Equal(11.89m, pay.Amount);
+        var settlement = _mollie.Payments.Single(p => FakeMollieClient.CheckoutUrl(p) == pay.CheckoutUrl);
+        _mollie.SetPaymentStatus(settlement.Id, "paid");
+        await Webhook(settlement.Id);
+
+        var settled = await Sub("main");
+        Assert.Equal(SubscriptionStatus.Cancelled, settled.Status);
+        Assert.False(settled.IsActive());
+        Assert.Contains(_events, e => e is SubscriptionPaymentRecovered<string>);
+        // Nothing new at Mollie, and the cancelled one kept its mandate.
+        Assert.Single(_mollie.Subscriptions);
+        Assert.Equal("canceled", atMollie.Status);
+        Assert.Equal(failed.MandateId, atMollie.MandateId);
+    }
+
+    [Fact]
     // A SEPA debit that arrives days late: the cycle starts on the day Mollie created the charge.
     public async Task ALatePaidCycle_StartsOnItsDueDate()
     {

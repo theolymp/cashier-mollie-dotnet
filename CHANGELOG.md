@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- A `past_due` subscription can be cancelled (`CancelAsync` / `CancelImmediatelyAsync`). Mollie
+  stops charging at once and the subscription ends now, but it stays `past_due`: the outstanding
+  amount is still owed and payable through `PayOutstandingAsync`. Paying it makes the subscription
+  `cancelled`, not active, and registers nothing at Mollie. `SubscriptionCancelled` carries the
+  subscription with `Status == past_due` in this case, so a consumer can keep its dunning open.
+
 ### Fixed
 
 - Resuming a cancelled subscription claims the row before it registers anything at Mollie. Two
