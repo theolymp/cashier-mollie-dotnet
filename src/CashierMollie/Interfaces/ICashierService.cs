@@ -21,6 +21,9 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
     /// <summary>
     /// Cancels a subscription at the end of the current billing period (grace period).
     /// The subscription remains active until <see cref="CashierMollieOptions.GracePeriodDays"/> after the cycle start.
+    /// A <c>past_due</c> subscription can be cancelled too: Mollie stops charging at once, it ends
+    /// now and stays <c>past_due</c>, so the outstanding amount remains payable through
+    /// <see cref="PayOutstandingAsync"/>; paying it makes the subscription <c>cancelled</c>.
     /// </summary>
     Task CancelAsync(IBillable<TKey> owner, string name, CancellationToken ct = default);
 

@@ -55,14 +55,14 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     /// <inheritdoc />
     public async Task CancelAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
-        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        var sub = await GetCancellableSubscriptionOrThrow(owner, name, ct);
         await _engine.CancelSubscriptionAsync(sub, immediately: false, ct);
     }
 
     /// <inheritdoc />
     public async Task CancelImmediatelyAsync(IBillable<TKey> owner, string name, CancellationToken ct = default)
     {
-        var sub = await GetActiveSubscriptionOrThrow(owner, name, ct);
+        var sub = await GetCancellableSubscriptionOrThrow(owner, name, ct);
         await _engine.CancelSubscriptionAsync(sub, immediately: true, ct);
     }
 
@@ -264,6 +264,17 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     private async Task<Subscription<TKey>> GetSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
         => await GetSubscriptionAsync(owner, name, ct)
            ?? throw new CashierException($"No active subscription '{name}' found.");
+
+    /// <summary>Active, on its grace period, or past_due and not cancelled yet.</summary>
+    private async Task<Subscription<TKey>> GetCancellableSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
+    {
+        var sub = await GetSubscriptionOrThrow(owner, name, ct);
+        if (sub.Status == SubscriptionStatus.PastDue && !sub.EndsAt.HasValue)
+            return sub;
+        if (!sub.IsActive() && !sub.OnGracePeriod())
+            throw new CashierException($"Subscription '{name}' is not active.");
+        return sub;
+    }
 
     private async Task<Subscription<TKey>> GetActiveSubscriptionOrThrow(IBillable<TKey> owner, string name, CancellationToken ct)
     {
