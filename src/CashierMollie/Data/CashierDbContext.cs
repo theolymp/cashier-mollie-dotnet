@@ -27,10 +27,24 @@ public class CashierDbContext<TKey> : DbContext where TKey : IEquatable<TKey>
     }
 
     /// <summary>
-    /// Automatically updates UpdatedAt timestamps and increments RowVersion
-    /// concurrency tokens on modified entities.
+    /// Updates UpdatedAt timestamps and increments RowVersion concurrency tokens on modified
+    /// entities, then saves. Every save overload ends in this one or the synchronous one below, so
+    /// a <c>SaveChanges()</c> is checked for concurrent writers like a <c>SaveChangesAsync()</c>.
     /// </summary>
-    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        Stamp();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <inheritdoc cref="SaveChangesAsync(bool, CancellationToken)"/>
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        Stamp();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    private void Stamp()
     {
         var now = DateTimeOffset.UtcNow;
         foreach (var entry in ChangeTracker.Entries())
@@ -43,7 +57,6 @@ public class CashierDbContext<TKey> : DbContext where TKey : IEquatable<TKey>
                     versioned.RowVersion++;
             }
         }
-        return await base.SaveChangesAsync(cancellationToken);
     }
 }
 

@@ -56,6 +56,29 @@ public class ConcurrencyTests
     }
 
     [Fact]
+    // A synchronous save used to skip the RowVersion bump, so it slipped past every concurrent writer.
+    public async Task ASynchronousSave_IsCheckedLikeAnAsyncOne()
+    {
+        using var db = new SqliteTestDatabase<string>();
+        await using (var seed = db.NewContext())
+        {
+            seed.Credits.Add(NewCredit());
+            await seed.SaveChangesAsync();
+        }
+
+        await using var writerA = db.NewContext();
+        await using var writerB = db.NewContext();
+        var creditA = await writerA.Credits.SingleAsync();
+        var creditB = await writerB.Credits.SingleAsync();
+
+        creditA.Balance -= 40m;
+        writerA.SaveChanges();
+
+        creditB.Balance -= 70m;
+        Assert.Throws<DbUpdateConcurrencyException>(() => writerB.SaveChanges());
+    }
+
+    [Fact]
     public async Task Credit_RowVersion_IsIncrementedOnEachSave()
     {
         using var db = new SqliteTestDatabase<string>();

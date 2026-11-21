@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- Resuming a cancelled subscription claims the row before it registers anything at Mollie. Two
+  resumes at once (or a resume racing a cancel) used to register two Mollie subscriptions, and the
+  one whose id was not stored charged every cycle. The loser now gets a `CashierException`. If
+  Mollie fails, the subscription stays cancelled with its old id. If the save after Mollie fails,
+  the new Mollie subscription is cancelled again (logged Critical if that fails too).
+- A synchronous `SaveChanges()` on `CashierDbContext` now bumps `RowVersion` and `UpdatedAt` like
+  `SaveChangesAsync()`. Before, it skipped the concurrency check.
+
 ## [0.6.0-beta.5] - 2026-11-20
 
 ### Fixed

@@ -91,6 +91,11 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             + "at Mollie yet; the webhook retries when that payment is reported paid.")]
     private partial void LogRegistrationDeferred(long subscriptionId, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Critical,
+        Message = "Resuming subscription {SubscriptionId} registered {MollieSubscriptionId} at Mollie, the save "
+            + "failed, and cancelling it there failed too. Cancel it at Mollie by hand or it charges unseen.")]
+    private partial void LogOrphanCancelFailed(long subscriptionId, string mollieSubscriptionId, Exception exception);
+
     [LoggerMessage(Level = LogLevel.Error,
         Message = "Upgrade to subscription {SubscriptionId}: could not {Step} after the customer was "
             + "charged. The local state is recorded; the step is listed in UpgradeResult.Incomplete.")]
@@ -319,13 +324,71 @@ public partial class MollieBillingEngine<TKey> : IBillingEngine<TKey> where TKey
             string mandateId = await NativeSubscriptions.LatestMandateAsync(_db, subscription.OwnerId, ct)
                 ?? throw new CashierException(
                     "Cannot resume: the owner has no mandate for Mollie to charge the next cycle from.");
-            await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
-                mandateId, subscription.EndsAt.Value, ct);
-        }
+            DateTimeOffset endsAt = subscription.EndsAt.Value;
+            string? cancelledId = subscription.MollieSubscriptionId;
 
-        subscription.EndsAt = null;
-        subscription.Status = SubscriptionStatus.Active;
-        await _db.SaveChangesAsync(ct);
+            // Claim first, as the webhook does. Two resumes at once (or a cancel racing this one)
+            // meet on the row's concurrency token here, before Mollie is asked for anything;
+            // otherwise both would register a subscription and the one whose id is not stored
+            // would charge the customer every cycle with no way to cancel it from here.
+            subscription.MollieSubscriptionId = NativeSubscriptions.RegisteringMarker;
+            subscription.EndsAt = null;
+            subscription.Status = SubscriptionStatus.Active;
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                throw new CashierException(
+                    $"Subscription {subscription.Id} was changed at the same time (another resume or cancel). "
+                    + "Reload it and try again.", ex);
+            }
+
+            try
+            {
+                await NativeSubscriptions.StartAtMollieAsync(_mollieClient, _options, subscription,
+                    mandateId, endsAt, ct);
+            }
+            catch
+            {
+                // Nothing was registered: back to cancelled, with the old id for payments under way.
+                subscription.MollieSubscriptionId = cancelledId;
+                subscription.EndsAt = endsAt;
+                subscription.Status = SubscriptionStatus.Cancelled;
+                await _db.SaveChangesAsync(CancellationToken.None);
+                throw;
+            }
+
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or OperationCanceledException)
+            {
+                // Mollie now has a subscription whose id is not stored. Cancel it, or it charges
+                // unseen from the next cycle on. The row keeps its claim; a stale claim is repaired
+                // like any other failed registration.
+                string orphan = subscription.MollieSubscriptionId!;
+                try
+                {
+                    await _mollieClient.CancelSubscriptionAsync(subscription.MollieCustomerId!, orphan,
+                        CancellationToken.None);
+                }
+                catch (Exception cancelEx)
+                {
+                    LogOrphanCancelFailed(subscription.Id, orphan, cancelEx);
+                }
+
+                throw;
+            }
+        }
+        else
+        {
+            subscription.EndsAt = null;
+            subscription.Status = SubscriptionStatus.Active;
+            await _db.SaveChangesAsync(ct);
+        }
 
         await _eventDispatcher.DispatchAsync(
             new SubscriptionResumed<TKey>(subscription, subscription.OwnerId), ct);
