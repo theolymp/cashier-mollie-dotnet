@@ -49,6 +49,10 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     }
 
     /// <inheritdoc />
+    public bool HasAccess(Subscription<TKey> subscription) =>
+        DunningPolicy.HasAccess(subscription, _options.Dunning, DateTimeOffset.UtcNow);
+
+    /// <inheritdoc />
     public ISubscriptionBuilder<TKey> NewSubscription(IBillable<TKey> owner, string name, string plan)
         => new SubscriptionBuilder<TKey>(_db, _engine, _mollieClient, _eventDispatcher, _options, owner, name, plan);
 

@@ -296,6 +296,8 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         if (outstanding.Count > 0 && subscription.Status == SubscriptionStatus.Active)
         {
             subscription.Status = SubscriptionStatus.PastDue;
+            subscription.PastDueSince = DateTimeOffset.UtcNow;
+            subscription.DunningRemindersSent = 0;
             await _db.SaveChangesAsync(ct);
             bool neverPaid = !await _db.Payments.AnyAsync(
                 p => p.SubscriptionId == subscription.Id && p.Status == "paid", ct);
@@ -306,6 +308,8 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         {
             // Cancelled while past_due: settling the debt does not bring it back.
             subscription.Status = subscription.EndsAt.HasValue ? SubscriptionStatus.Cancelled : SubscriptionStatus.Active;
+            subscription.PastDueSince = null;
+            subscription.DunningRemindersSent = 0;
             await _db.SaveChangesAsync(ct);
             await _eventDispatcher.DispatchAsync(
                 new SubscriptionPaymentRecovered<TKey>(subscription, payment, subscription.OwnerId), ct);

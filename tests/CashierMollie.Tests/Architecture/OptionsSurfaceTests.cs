@@ -64,7 +64,7 @@ public class OptionsSurfaceTests
     private const string NotHonouredMarker = "NOT READ BY THIS LIBRARY";
 
     private static readonly Type[] OptionTypes =
-        [typeof(CashierMollieOptions), typeof(SwapOptions), typeof(SubscriptionOptions)];
+        [typeof(CashierMollieOptions), typeof(SwapOptions), typeof(SubscriptionOptions), typeof(DunningOptions)];
 
     [Fact]
     public void CommentStripper_DropsCommentsAndKeepsCode()

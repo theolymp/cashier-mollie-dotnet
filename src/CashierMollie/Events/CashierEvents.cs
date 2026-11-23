@@ -60,6 +60,34 @@ public record SubscriptionPastDue<TKey>(Subscription<TKey> Subscription, Payment
 public record SubscriptionPaymentRecovered<TKey>(Subscription<TKey> Subscription, Payment<TKey> Payment, TKey OwnerId)
     where TKey : IEquatable<TKey>;
 
+/// <summary>
+/// Dispatched by the dunning job (<see cref="DunningOptions"/>) on each reminder day while a
+/// subscription is <c>past_due</c>. Carries no checkout link on purpose: creating one would create a
+/// Mollie payment for every reminder. Link to a page of your own that calls
+/// <see cref="Interfaces.ICashierService{TKey}.PayOutstandingAsync"/>.
+/// </summary>
+/// <param name="Subscription">The past_due subscription.</param>
+/// <param name="OldestOutstanding">The oldest unpaid payment: what the next checkout settles.</param>
+/// <param name="OutstandingTotal">Sum of all unpaid payments of the subscription.</param>
+/// <param name="DaysPastDue">Whole days since <see cref="Subscription{TKey}.PastDueSince"/>.</param>
+/// <param name="ReminderNumber">1 for the first reminder, 2 for the second, and so on.</param>
+/// <param name="AccessEnded">True once the grace period is over: the customer has no access until paid.</param>
+/// <param name="OwnerId">The owner.</param>
+public record DunningReminderDue<TKey>(Subscription<TKey> Subscription, Payment<TKey> OldestOutstanding,
+    decimal OutstandingTotal, int DaysPastDue, int ReminderNumber, bool AccessEnded, TKey OwnerId)
+    where TKey : IEquatable<TKey>;
+
+/// <summary>
+/// Dispatched by the dunning job when a <c>past_due</c> subscription reached
+/// <see cref="DunningOptions.CancelAfterDays"/> and was cancelled at Mollie. It stays
+/// <c>past_due</c> with an end date: the debt remains payable through
+/// <see cref="Interfaces.ICashierService{TKey}.PayOutstandingAsync"/>, and paying it does not
+/// restart the subscription. <see cref="SubscriptionCancelled{TKey}"/> is dispatched as well.
+/// </summary>
+public record SubscriptionCancelledForNonPayment<TKey>(Subscription<TKey> Subscription,
+    decimal OutstandingTotal, TKey OwnerId)
+    where TKey : IEquatable<TKey>;
+
 // ── Subscription events ─────────────────────────────────────────────
 
 /// <summary>Dispatched when a subscription's quantity is updated.</summary>

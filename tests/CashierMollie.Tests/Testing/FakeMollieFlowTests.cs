@@ -166,6 +166,7 @@ public sealed class FakeMollieFlowTests : IDisposable
         await Webhook(failed.Id);
 
         Assert.Equal(SubscriptionStatus.PastDue, (await Sub("main")).Status);
+        Assert.NotNull((await Sub("main")).PastDueSince);
         Assert.False(Assert.Single(_events.OfType<SubscriptionPastDue<string>>()).NeverPaid);
 
         var pay = await With(sp => sp.GetRequiredService<ICashierService<string>>().PayOutstandingAsync(_owner, "main"));
@@ -175,6 +176,7 @@ public sealed class FakeMollieFlowTests : IDisposable
         await Webhook(settlement.Id);
 
         Assert.Equal(SubscriptionStatus.Active, (await Sub("main")).Status);
+        Assert.Null((await Sub("main")).PastDueSince);
         Assert.Contains(_events, e => e is SubscriptionPaymentRecovered<string>);
         Assert.Equal(settlement.MandateId, atMollie.MandateId);
         Assert.NotEqual(failed.MandateId, atMollie.MandateId);
