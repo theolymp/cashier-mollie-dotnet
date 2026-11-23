@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.7] - 2026-11-23
+
 ### Added
 
 - **Dunning on `MollieNative`** (`CashierMollie:Dunning`, off by default). A background job
