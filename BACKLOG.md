@@ -264,7 +264,7 @@ There is no retry cap, no backoff, no auto-suspend and no customer notification.
 leaves retries to Mollie. Managed retries **by omission**: a failed order item is never consumed,
 so the next cycle picks it up again, without limit.
 
-Open: **a bounded policy.** The documentation half of this entry was already done when the entry
+Open: **a bounded policy.** Three options and a recommendation are in `design/dunning-proposal.md` (2026-11-23), waiting for a decision. The documentation half of this entry was already done when the entry
 was written and the entry did not say so: the README carries a section "Who retries a failed
 payment? (read before handling `OrderPaymentFailed`)" with a per-engine table and the explicit
 sentence that there is no dunning logic in this library. Corrected 2026-10-26 — the marker was
