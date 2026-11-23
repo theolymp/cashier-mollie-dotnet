@@ -433,8 +433,9 @@ Robin confirmed the prices via root ("passt so, können wir später noch ändern
 with the prices configurable rather than in code. Open after merge: a release (root's call), the
 consumer migration, and the test-mode run (test key and webhook release, both with Robin).
 
-**State 2026-11-15:** beta.1 published, beta.2 (payment default, termination with refund) tagged and
-waiting for the `release` approval. The test-mode run is scripted in
+**State 2026-11-23:** 0.6.0-beta.1 to beta.6 are published on nuget.org; identity runs beta.6 on dev
+(past_due cancel, resume claim, sync-save concurrency check). No further beta is planned before the
+test-mode run. The test-mode run is scripted in
 `samples/CashierMollie.Sample` (`TESTMODE.md`: upgrade, surplus, downgrade with the booked amount
 change, early end, past due, invoice data) and waits only for the test key. Final 0.6.0 follows its
 `report` exiting 0. Open in it: whether Mollie accepts an interval of `1 days` (`ShortCycleDays`).
