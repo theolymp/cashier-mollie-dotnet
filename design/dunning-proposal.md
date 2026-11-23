@@ -1,8 +1,9 @@
-# Dunning: design proposal (2026-11-23, not decided, no code)
+# Dunning: design proposal (2026-11-23)
 
-Status: **proposal for a decision.** Nothing here is built. This file goes away or turns into a
-"decided" note once a decision is made; the open entry in `BACKLOG.md` ("No dunning or retry
-policy") points here.
+Status: **decided 2026-11-23: option C**, reminders on days 3 and 7, cancellation on day 14,
+access kept until day 7. Built on `MollieNative` behind `CashierMollie:Dunning:Enabled` (off by
+default); see the README section "Dunning". `Managed` is unchanged. The text below is the proposal
+as it was put to the decision.
 
 ## What happens today (measured on `main`, 0.6.0-beta.6)
 

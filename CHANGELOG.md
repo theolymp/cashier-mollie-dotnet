@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Dunning on `MollieNative`** (`CashierMollie:Dunning`, off by default). A background job
+  dispatches `DunningReminderDue<TKey>` on the reminder days (default 3 and 7) after a subscription
+  became `past_due`, and on day 14 cancels it at Mollie and dispatches
+  `SubscriptionCancelledForNonPayment<TKey>`; the debt stays payable. Nothing is charged again
+  automatically. Each step is claimed through the row's concurrency token, so several instances
+  dispatch a reminder once.
+- `ICashierService.HasAccess(subscription)`: active, cancelled but not ended, or `past_due` within
+  `Dunning:GraceDays` (default 7). A `past_due` row without `PastDueSince` has no access until the
+  job fills the date in from its oldest outstanding payment.
+- Columns `cashier_subscriptions.PastDueSince` (`datetimeoffset` null) and `DunningRemindersSent`
+  (`int`, default 0): add a migration. The webhook sets and clears them.
+
 ## [0.6.0-beta.6] - 2026-11-21
 
 ### Added

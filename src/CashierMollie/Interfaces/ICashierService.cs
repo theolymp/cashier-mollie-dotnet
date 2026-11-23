@@ -130,6 +130,15 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
         CancellationToken ct = default);
 
     /// <summary>
+    /// Whether the customer should have access through this subscription: active, cancelled but
+    /// not yet ended, or <c>past_due</c> within <see cref="DunningOptions.GraceDays"/> of
+    /// <see cref="Subscription{TKey}.PastDueSince"/> (fail-closed when that date is missing).
+    /// Use this for access checks rather than <see cref="Subscription{TKey}.IsActive"/>, which is
+    /// false from the first failed payment.
+    /// </summary>
+    bool HasAccess(Subscription<TKey> subscription);
+
+    /// <summary>
     /// Checks whether the owner has an active subscription with the given name.
     /// Returns true if the subscription is active, on a grace period, or on a trial.
     /// </summary>

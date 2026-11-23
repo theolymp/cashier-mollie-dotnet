@@ -86,7 +86,7 @@ CashierMollie provides a fluent, expressive API for managing [Mollie](https://ww
 - **Chargeback detection** -- automatic tracking and events for chargebacks
 - **Invoice interface** -- `IInvoiceGenerator<TKey>` is declared and registered, but **nothing in this library calls it**; implementing it currently has no effect
 - **Webhook handling** -- opt-in middleware for automatic processing of Mollie payment notifications
-- **Event system** -- 26 domain events via pluggable `ICashierEventDispatcher`
+- **Event system** -- 28 domain events via pluggable `ICashierEventDispatcher`
 - **EF Core integration** -- 7 entities across 7 tables with a single `ModelBuilder` extension
 - **Generic owner key** -- supports `string`, `int`, `Guid`, or any `IEquatable<TKey>` type for your user model
 - **Dependency injection** -- first-class ASP.NET Core DI support with a single `AddCashierMollie<TKey>()` call
@@ -518,8 +518,20 @@ CashierMollie supports two billing strategies via the `IBillingEngine<TKey>` str
   `PayOutstandingAsync(owner, name)` returns a checkout for the oldest failed amount; it is a first
   payment, so it also creates a new mandate, and the Mollie subscription moves to it once paid.
   When nothing is outstanding, the subscription is active again (`SubscriptionPaymentRecovered`).
-  A later successful cycle does not settle an earlier failed one. Any grace period before you lock
-  access is yours: `Payment.FailedAt` tells you when.
+  A later successful cycle does not settle an earlier failed one. `Subscription.PastDueSince` records
+  when it became `past_due`; check access with `ICashierService.HasAccess(subscription)`, which keeps
+  a `past_due` subscription accessible for `Dunning:GraceDays` (see [Dunning](#dunning-mollienative)).
+- <a id="dunning-mollienative"></a>**Dunning** (off by default, `CashierMollie:Dunning:Enabled`). A
+  background job dispatches `DunningReminderDue<TKey>` on the reminder days (default 3 and 7 after
+  `PastDueSince`; day 0 is `SubscriptionPastDue`), and on `CancelAfterDays` (default 14) cancels the
+  subscription at Mollie and dispatches `SubscriptionCancelledForNonPayment<TKey>`; the debt stays
+  payable through `PayOutstandingAsync`. Nothing is ever charged again automatically, and the
+  library sends no e-mail: send yours from the events, linking to a page that calls
+  `PayOutstandingAsync` (the reminder carries no checkout link, because creating one creates a
+  Mollie payment). Safe with several instances: each step is claimed through the row's
+  concurrency token, so a reminder is dispatched at most once. A `past_due` row from before 0.6.0
+  has no `PastDueSince` and no access until the job fills it in from its oldest outstanding
+  payment, counting reminder days already passed as sent.
 - **Termination for good cause.** `CancelImmediatelyWithRefundAsync(owner, name)` ends the
   subscription now, at Mollie too, and refunds the unused whole days of the paid cycle. An ordinary
   `CancelAsync` refunds nothing and runs to the end of the paid cycle.
@@ -825,12 +837,12 @@ CashierMollie dispatches domain events throughout the subscription and payment l
 ### Who retries a failed payment? (read before handling `OrderPaymentFailed`)
 
 Events are **notifications, not instructions** -- but do not read that as "you can ignore them".
-There is **no retry logic in this library**: no retry cap, no backoff schedule, no customer
-notification. What happens after a failure depends on the billing engine:
+The library **never charges a failed amount again** and sends no customer notification; on
+`MollieNative` it can keep a dunning schedule for you ([Dunning](#dunning-mollienative)). What happens after a failure depends on the billing engine:
 
 | Engine | What happens | What you still own |
 |--------|--------------|--------------------|
-| `MollieNative` (default) | **The subscription is locked.** From 0.6.0 a failed priced payment puts it `past_due` (not active) and dispatches the past-due event (see [Available events](#available-events)). Mollie does not charge the failed amount again; `PayOutstandingAsync` gives the customer a checkout for it, and paying everything outstanding unlocks the subscription. Unpriced subscriptions (mandate-only, or created before 0.6.0) are not charged at all, so nothing fails. | Telling the customer, any grace period before you lock access (`Payment.FailedAt`), and when to give up and cancel. |
+| `MollieNative` (default) | **The subscription is locked.** From 0.6.0 a failed priced payment puts it `past_due` (not active) and dispatches the past-due event (see [Available events](#available-events)). Mollie does not charge the failed amount again; `PayOutstandingAsync` gives the customer a checkout for it, and paying everything outstanding unlocks the subscription. Unpriced subscriptions (mandate-only, or created before 0.6.0) are not charged at all, so nothing fails. | Telling the customer. With `Dunning:Enabled` the library keeps the schedule (reminder events, access grace period through `HasAccess`, cancellation at Mollie on day 14 by default); without it, grace period and giving up are yours too. |
 | `Managed` | Nothing explicitly. The failed `OrderItem` is simply left unconsumed, so the **next billing cycle picks it up again** -- retry by omission, with **no attempt limit and no backoff**. | Capping attempts and giving up. Without that, a permanently failing item is retried forever. |
 
 **On `Managed`, do not assume the library will eventually give up and suspend the subscription --
@@ -852,6 +864,8 @@ implement it in your `ICashierEventDispatcher`.
 | `SubscriptionUpgraded<TKey>` | `UpgradeAsync` replaced subscriptions with a new one; carries the credit, charge and refunds for the invoice |
 | `SubscriptionPastDue<TKey>` | A priced cycle payment failed; the subscription is `past_due` and no longer active |
 | `SubscriptionPaymentRecovered<TKey>` | The last outstanding payment of a `past_due` subscription was paid; it is active again |
+| `DunningReminderDue<TKey>` | Dunning reminder day reached for a `past_due` subscription (MollieNative, `Dunning:Enabled`); carries the oldest outstanding payment, the total, days past due, reminder number and whether access has ended |
+| `SubscriptionCancelledForNonPayment<TKey>` | Dunning cancelled a `past_due` subscription at Mollie on `Dunning:CancelAfterDays`; the debt stays payable |
 | `SubscriptionQuantityUpdated<TKey>` | Subscription quantity was updated |
 | `OrderPaymentPaid<TKey>` | A payment was successfully processed |
 | `OrderPaymentFailed<TKey>` | A payment attempt failed -- see [who retries](#who-retries-a-failed-payment-read-before-handling-orderpaymentfailed) |
@@ -973,7 +987,7 @@ unchanged. One `dotnet ef migrations add` against your context picks up:
 
 | Table | New columns |
 |---|---|
-| `cashier_subscriptions` | `PriceNet`, `TaxRatePercent` (`decimal(18,4)` null), `Description` (`varchar(255)` null), `CycleValueNet` (`decimal(18,4)` null), `ReplacedBySubscriptionId` (`bigint` null), `CycleAnchorDay` (`int` null, from 0.6.0-beta.4) |
+| `cashier_subscriptions` | `PriceNet`, `TaxRatePercent` (`decimal(18,4)` null), `Description` (`varchar(255)` null), `CycleValueNet` (`decimal(18,4)` null), `ReplacedBySubscriptionId` (`bigint` null), `CycleAnchorDay` (`int` null, from 0.6.0-beta.4), `PastDueSince` (`datetimeoffset` null), `DunningRemindersSent` (`int`, default 0) (both unreleased, after 0.6.0-beta.6) |
 | `cashier_payments` | `AmountNet`, `TaxRatePercent` (`decimal(18,4)` null), `CreditNet` (`decimal(18,4)`, default 0), `SettlesPaymentId` (`bigint` null, indexed) |
 
 `past_due` is a new value of `cashier_subscriptions.Status`; if you filter on status yourself, decide
@@ -1027,6 +1041,8 @@ and will not tell you.
 | `CycleValueNet` | `decimal(18,4)?` | Net value of the paid current cycle; what an upgrade credits pro rata (0.6.0) |
 | `ReplacedBySubscriptionId` | `bigint?` | The subscription that replaced this one in an upgrade (0.6.0) |
 | `CycleAnchorDay` | `int?` | Day of the month Mollie charges a monthly subscription on (0.6.0) |
+| `PastDueSince` | `datetimeoffset?` | When it became `past_due`; dunning days and the access grace period count from here (0.6.0) |
+| `DunningRemindersSent` | `int` | Dunning reminders dispatched since `PastDueSince` (0.6.0) |
 | `CreatedAt` | `datetimeoffset` | Record creation timestamp |
 | `UpdatedAt` | `datetimeoffset` | Last update timestamp |
 
@@ -1220,6 +1236,11 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `ProcessingInterval` | `TimeSpan` | `"01:00:00"` | Interval between Managed engine processing runs |
 | `OrderNumberFormat` | `string` | `"ORD-{0:D6}"` | Format for `Order.Number`, `{0}` being the order ID. Read since 0.5.0, when the `Managed` engine began writing order headers. A value that is not a usable format string, or one longer than the 50-character column, leaves the number null and logs it rather than failing a billing run. Set it empty to omit order numbers. |
 | `PaymentMethodUpdateAmount` | `decimal(18,4)` | `0.01` | Amount for payment method update verification |
+| `Dunning:Enabled` | `bool` | `false` | Runs the dunning job (MollieNative only). See [Dunning](#dunning-mollienative) |
+| `Dunning:GraceDays` | `int` | `7` | Days a `past_due` subscription keeps access (`HasAccess`); applies even with the job off |
+| `Dunning:ReminderDays` | `int[]` | `[3, 7]` | Days after `PastDueSince` on which `DunningReminderDue` is dispatched |
+| `Dunning:CancelAfterDays` | `int` | `14` | Day on which the subscription is cancelled at Mollie |
+| `Dunning:CheckInterval` | `TimeSpan` | `"01:00:00"` | How often the dunning job runs |
 | `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 
 ## Roadmap
@@ -1245,7 +1266,8 @@ CashierMollie covers the full subscription lifecycle, dual billing engines, coup
 - [x] **Recurring billing on `MollieNative`** -- priced subscriptions are registered at Mollie and charged every cycle (0.6.0). Up to 0.5.0 nothing recurring was charged
 - [ ] **Metadata on recurring charges** -- order items carry no metadata, so only the first payment takes it to Mollie
 - [x] **Payment default on `MollieNative`** -- a failed cycle locks the subscription (`past_due`), `PayOutstandingAsync` settles it with a new mandate (0.6.0)
-- [ ] **Dunning / retry logic** -- automatic payment retry with escalation (neither engine retries with a limit or backoff)
+- [x] **Dunning on `MollieNative`** -- reminders, an access grace period and cancellation at Mollie, no automatic re-debit (0.6.0, off by default)
+- [ ] **Dunning on `Managed`** -- a failed item is still retried every cycle without a limit
 
 ## Testing your integration
 

@@ -106,6 +106,18 @@ public class Subscription<TKey> : IHasTimestamps, IHasConcurrencyToken where TKe
     /// <summary>When the current billing cycle started.</summary>
     public DateTimeOffset? CycleStartedAt { get; set; }
 
+    /// <summary>
+    /// When the subscription became <c>past_due</c>; null while it is not. The dunning schedule
+    /// (<see cref="DunningOptions"/>) and the grace period of
+    /// <see cref="Interfaces.ICashierService{TKey}.HasAccess"/> count from here. A <c>past_due</c>
+    /// row from before 0.6.0 has none until the dunning job fills it in from its oldest
+    /// outstanding payment; until then it has no access (fail-closed).
+    /// </summary>
+    public DateTimeOffset? PastDueSince { get; set; }
+
+    /// <summary>How many dunning reminders were dispatched for the current <see cref="PastDueSince"/>.</summary>
+    public int DunningRemindersSent { get; set; }
+
     /// <summary>When this record was created.</summary>
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
