@@ -258,6 +258,12 @@ Not covered: a run against Mollie's test mode. The request object is verified he
 survives the wire is not, and the credential for that lives in the secret store rather than
 anywhere this repository can reach.
 
+### Dunning reads the clock directly (consumer request 2026-11-24)
+
+`DunningService` and `DunningPolicy.HasAccess` use `DateTimeOffset.UtcNow`, so a consumer testing
+its dunning mails has to backdate `PastDueSince`. Wanted: an optional `TimeProvider` (default
+`TimeProvider.System`). Not urgent.
+
 ### Managed charging: open after the dunning review (2026-11-24, pre-existing)
 
 Found by the security review of Managed dunning; none of it was introduced there.

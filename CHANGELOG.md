@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.6.0-beta.8] - 2026-11-24
+
 ### Added
 
 - **Dunning on `Managed`**, with the same schedule as on `MollieNative` (reminders on days 3 and 7,
