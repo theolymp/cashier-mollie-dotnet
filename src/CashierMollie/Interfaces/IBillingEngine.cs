@@ -58,8 +58,7 @@ public interface IBillingEngine<TKey> where TKey : IEquatable<TKey>
     /// <see cref="NotSupportedException"/>.</summary>
     Task<int> RepriceAsync(TKey ownerId, CancellationToken ct = default);
 
-    /// <summary>See <see cref="ICashierService{TKey}.PayOutstandingAsync"/>. Managed throws
-    /// <see cref="NotSupportedException"/>.</summary>
+    /// <summary>See <see cref="ICashierService{TKey}.PayOutstandingAsync"/>. Both engines.</summary>
     Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, Subscription<TKey> subscription,
         string? redirectUrl = null, CancellationToken ct = default);
 

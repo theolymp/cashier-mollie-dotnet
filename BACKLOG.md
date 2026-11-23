@@ -258,13 +258,25 @@ Not covered: a run against Mollie's test mode. The request object is verified he
 survives the wire is not, and the credential for that lives in the secret store rather than
 anywhere this repository can reach.
 
+### Managed charging: open after the dunning review (2026-11-24, pre-existing)
+
+Found by the security review of Managed dunning; none of it was introduced there.
+- **Crash window:** Mollie accepts the charge, the process dies before `SaveChanges`; the item is
+  unconsumed and charged again, and the webhook ignores the first payment (no row). Fix: write a
+  pending row before the call, or send an idempotency key.
+- **No claim on due items:** two instances processing the same item both charge it; with a refusal
+  the second hits the unique index on `refused_<itemId>`, and the failed entities poison the rest
+  of that pass's `SaveChanges`.
+- **Mandate per owner, not per subscription:** the engine charges the owner's latest mandate, so
+  settling subscription A on a new mandate moves subscription B to it too.
+
 ### No dunning or retry policy
 
 There is no retry cap, no backoff, no auto-suspend and no customer notification. MollieNative
 leaves retries to Mollie. Managed retries **by omission**: a failed order item is never consumed,
 so the next cycle picks it up again, without limit.
 
-**MollieNative: decided and built 2026-11-23** (option C of `design/dunning-proposal.md`): `DunningService` dispatches `DunningReminderDue` on days 3 and 7 and cancels at Mollie on day 14 (`SubscriptionCancelledForNonPayment`); `ICashierService.HasAccess` keeps a `past_due` subscription accessible until day 7. Off by default, unreleased. Open: **Managed** still retries by omission without limit. The documentation half of this entry was already done when the entry
+**MollieNative: decided and built 2026-11-23** (option C of `design/dunning-proposal.md`): `DunningService` dispatches `DunningReminderDue` on days 3 and 7 and cancels at Mollie on day 14 (`SubscriptionCancelledForNonPayment`); `ICashierService.HasAccess` keeps a `past_due` subscription accessible until day 7. Off by default, unreleased. **Managed: decided and built 2026-11-24** (same option C): charges are payment rows, a failure makes it `past_due`, `PayOutstandingAsync` settles it, the cancel day ends it locally; no more retries by omission. Unreleased. The documentation half of this entry was already done when the entry
 was written and the entry did not say so: the README carries a section "Who retries a failed
 payment? (read before handling `OrderPaymentFailed`)" with a per-engine table and the explicit
 sentence that there is no dunning logic in this library. Corrected 2026-10-26 — the marker was

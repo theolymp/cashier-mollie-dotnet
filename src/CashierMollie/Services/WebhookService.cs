@@ -259,7 +259,9 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
     /// </summary>
     private async Task ReconcileDefaultAsync(Subscription<TKey> subscription, Payment<TKey> payment, CancellationToken ct)
     {
-        if (!NativeSubscriptions.IsPriced(subscription)
+        // On Managed the price lives on the order item, not the subscription; its charges carry
+        // their net on the payment row, which is what OutstandingAsync counts.
+        if ((!NativeSubscriptions.IsPriced(subscription) && _options.BillingEngine != BillingEngineType.Managed)
             || (subscription.Status != SubscriptionStatus.Active && subscription.Status != SubscriptionStatus.PastDue))
         {
             return;

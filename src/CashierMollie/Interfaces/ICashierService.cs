@@ -102,9 +102,10 @@ public interface ICashierService<TKey> where TKey : IEquatable<TKey>
 
     /// <summary>
     /// Creates a Mollie checkout for the oldest outstanding cycle payment of a <c>past_due</c>
-    /// subscription (MollieNative engine only). It is a first payment, so it also creates a new
-    /// mandate, and once it is paid the Mollie subscription charges that mandate from then on.
-    /// When no outstanding payment remains, the subscription is active again.
+    /// subscription. It is a first payment, so it also creates a new mandate: on MollieNative the
+    /// Mollie subscription charges that mandate from then on, on Managed the next order item does
+    /// (both engines since 0.6.0-beta.8). When no outstanding payment remains, the subscription is
+    /// active again.
     /// </summary>
     /// <returns>The checkout URL, the amount, and how many outstanding payments remain after this one.</returns>
     /// <exception cref="Exceptions.CashierException">The subscription has nothing outstanding.</exception>

@@ -104,16 +104,18 @@ public class CashierMollieOptions
     public string PaymentMethodUpdateRedirectUrl { get; set; } = "/billing/payment-method-updated";
 
     /// <summary>
-    /// What happens after a payment fails on the MollieNative engine: reminders, the grace period
-    /// and the cancellation. Off by default.
+    /// What happens after a payment fails: reminders, the grace period and the cancellation. Off
+    /// by default. Both engines (Managed since 0.6.0-beta.8).
     /// </summary>
     public DunningOptions Dunning { get; set; } = new();
 }
 
 /// <summary>
-/// Dunning on the MollieNative engine. The library never charges a failed amount again: it
-/// dispatches reminders, keeps access for a grace period, and cancels the subscription at Mollie
-/// at the end. The customer settles through <c>PayOutstandingAsync</c>. All days count from
+/// Dunning on both engines. The library never charges a failed amount again: it dispatches
+/// reminders, keeps access for a grace period, and cancels the subscription at the end (at Mollie
+/// on MollieNative; locally on Managed, which registers nothing there). On Managed a
+/// <c>past_due</c> subscription is not charged for later cycles either until it is settled. The
+/// customer settles through <c>PayOutstandingAsync</c>. All days count from
 /// <see cref="Models.Subscription{TKey}.PastDueSince"/>.
 /// </summary>
 public class DunningOptions
@@ -134,7 +136,8 @@ public class DunningOptions
     public IList<int> ReminderDays { get; set; } = [3, 7];
 
     /// <summary>
-    /// Day on which the subscription is cancelled at Mollie (the debt stays payable) and
+    /// Day on which the subscription is cancelled (at Mollie on MollieNative, locally on Managed;
+    /// the debt stays payable) and
     /// <see cref="Events.SubscriptionCancelledForNonPayment{TKey}"/> is dispatched. Default 14.
     /// </summary>
     public int CancelAfterDays { get; set; } = 14;
