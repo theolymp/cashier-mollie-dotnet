@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Dunning on `Managed`**, with the same schedule as on `MollieNative` (reminders on days 3 and 7,
+  access until day 7, cancellation on day 14, off by default). On the cancel day the subscription
+  ends locally; nothing is registered at Mollie on this engine. The job is now registered for both
+  engines.
+- `PayOutstandingAsync` on `Managed` (it threw `NotSupportedException`): a checkout for the oldest
+  failed charge, which also creates a new mandate for the next order item.
+
+### Changed
+
+- **Behaviour change on `Managed`: every charge is now a row in `cashier_payments`** (net amount,
+  mandate, Mollie status), so the webhook finds it. Before, the webhook ignored Managed charges, so
+  a charge that failed after Mollie accepted it went unnoticed. Queries that count payments see
+  these rows; `OrderPaymentPaid` and `OrderPaymentFailed` now also arrive from the webhook for them.
+  No schema change.
+- **A failed charge on `Managed` is no longer retried.** It puts the subscription `past_due` and
+  dispatches `SubscriptionPastDue`; the order item is consumed and later cycles wait until the debt
+  is settled. A charge Mollie refuses outright is recorded as a failed payment whose id starts with
+  `refused_`. Before, the item stayed unconsumed and was charged again on every processing pass,
+  without limit. Only a 4xx answer other than 429 counts as a refusal: after a timeout, a 5xx or a
+  429 the payment may exist, so the item stays unconsumed for the next pass, as before. A coupon
+  cycle is spent on a refused charge, because the debt is the discounted amount. Once the debt is
+  settled, the waiting order item is charged on the next pass.
+
 ## [0.6.0-beta.7] - 2026-11-23
 
 ### Added

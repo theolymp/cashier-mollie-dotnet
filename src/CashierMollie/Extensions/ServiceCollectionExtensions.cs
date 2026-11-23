@@ -48,11 +48,12 @@ public static class ServiceCollectionExtensions
         else
         {
             services.AddScoped<IBillingEngine<TKey>, MollieBillingEngine<TKey>>();
-            // Dunning is MollieNative only. The job is registered always and returns at once
-            // unless CashierMollie:Dunning:Enabled is true.
-            services.AddScoped<DunningService<TKey>>();
-            services.AddHostedService<DunningBackgroundService<TKey>>();
         }
+
+        // Dunning, on both engines. The job is registered always and returns at once unless
+        // CashierMollie:Dunning:Enabled is true.
+        services.AddScoped<DunningService<TKey>>();
+        services.AddHostedService<DunningBackgroundService<TKey>>();
 
         // Startup diagnostics: surfaces the effective billing engine and warns about a webhook URL
         // Mollie cannot call back. Both failure modes are otherwise silent until real payments run.

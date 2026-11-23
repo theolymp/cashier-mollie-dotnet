@@ -3,6 +3,7 @@ using CashierMollie.Data;
 using CashierMollie.Events;
 using CashierMollie.Interfaces;
 using CashierMollie.Models;
+using Mollie.Api.Models.Payment.Response;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -242,10 +243,10 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             "UpgradeAsync is implemented for the MollieNative engine only. On the Managed engine the "
             + "consumer prices each order item and can credit the remainder there.");
 
-    /// <summary>Not supported on the Managed engine, whose unpaid order item is retried by itself.</summary>
+    /// <inheritdoc />
     public Task<OutstandingPaymentResult> PayOutstandingAsync(IBillable<TKey> owner, Subscription<TKey> subscription,
         string? redirectUrl = null, CancellationToken ct = default) =>
-        throw new NotSupportedException("PayOutstandingAsync is implemented for the MollieNative engine only.");
+        NativeSubscriptions.PayOutstandingAsync(_db, _mollieClient, _options, owner, subscription, redirectUrl, ct);
 
     /// <summary>Not supported on the Managed engine.</summary>
     public Task<EarlyEndResult> CancelImmediatelyWithRefundAsync(Subscription<TKey> subscription,
@@ -471,11 +472,33 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                     LogMetadataUnreadable(item.Id);
                 }
 
-                // Create a recurring payment via Mollie
-                var molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
-                    customerId, mandateId, net,
-                    item.Currency, item.Description,
-                    _options.EffectiveWebhookUrl, metadata, ct);
+                // Create a recurring payment via Mollie. A refusal is a failed charge, recorded as
+                // the debt it is; before 0.6.0-beta.8 the item stayed unconsumed and was retried on
+                // every pass without limit. Only a refusal counts (a 4xx answer: Mollie looked at
+                // the request and created nothing). A timeout, a 5xx or a dropped connection says
+                // nothing about whether the payment exists, so recording a debt for it could charge
+                // the customer twice; those leave the item unconsumed for the next pass, as before.
+                PaymentResponse molliePayment;
+                try
+                {
+                    molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                        customerId, mandateId, net,
+                        item.Currency, item.Description,
+                        _options.EffectiveWebhookUrl, metadata, ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested && IsRefusal(ex))
+                {
+                    LogOrderItemProcessingFailed(item.Id, ex);
+                    if (discount.Status == CouponDiscountStatus.Applied)
+                    {
+                        // The debt is the discounted amount, so the cycle of the coupon is spent
+                        // on it; otherwise the next cycle would apply the same discount again.
+                        await _coupons.ConsumeRedemptionAsync(item.OwnerId, subscription.Name, ct);
+                    }
+
+                    await RecordRefusedChargeAsync(item, subscription, net, now, ct);
+                    continue;
+                }
 
                 if (discount.Status == CouponDiscountStatus.Applied)
                 {
@@ -523,6 +546,23 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                     // subtracted, and the next cycle's coupon state is computed when it is charged.
                 };
                 _db.OrderItems.Add(nextItem);
+
+                // The charge as a payment row, so the webhook finds it: a later failure (a SEPA
+                // debit returned, a card declined) makes the subscription past_due and the amount
+                // payable through PayOutstandingAsync, as on MollieNative. Without the row the
+                // webhook ignored every Managed charge. Tax is 0 for the same reason as on the order.
+                _db.Payments.Add(new Payment<TKey>
+                {
+                    OwnerId = item.OwnerId,
+                    SubscriptionId = subscription.Id,
+                    MolliePaymentId = molliePayment.Id,
+                    MollieMandateId = mandateId,
+                    Status = molliePayment.Status ?? "open",
+                    Amount = net,
+                    Currency = item.Currency,
+                    AmountNet = net,
+                    TaxRatePercent = 0m,
+                });
 
                 // The order header for what was just billed. Until now the library's only
                 // `new Order<TKey>` was in ChargeBuilder, so the Managed engine created order
@@ -597,6 +637,78 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             }
         }
     }
+
+    /// <summary>
+    /// A charge Mollie refused: the item is consumed and its successor scheduled exactly as after a
+    /// charge, a failed payment row records the debt, and the subscription becomes past_due. The
+    /// successor waits while it is past_due (only active subscriptions are charged), so nothing is
+    /// retried: the customer settles through <see cref="PayOutstandingAsync"/>, and the dunning job
+    /// reminds and finally cancels. Consuming the item is what keeps a settled debt from being
+    /// charged a second time once the subscription is active again.
+    /// </summary>
+    private async Task RecordRefusedChargeAsync(OrderItem<TKey> item, Subscription<TKey> subscription,
+        decimal net, DateTimeOffset now, CancellationToken ct)
+    {
+        item.ProcessedAt = now;
+        item.MolliePaymentStatus = "failed";
+        _db.OrderItems.Add(new OrderItem<TKey>
+        {
+            SubscriptionId = subscription.Id,
+            OwnerId = item.OwnerId,
+            Description = item.Description,
+            Currency = item.Currency,
+            UnitPrice = item.UnitPrice,
+            Quantity = item.Quantity,
+            ProcessAt = now.AddDays(DefaultBillingIntervalDays),
+            Metadata = item.Metadata,
+        });
+
+        // No Mollie payment exists, but the column is required and unique: the item id makes the
+        // value unique, and the prefix is not one Mollie uses, so no webhook ever matches it.
+        var failed = new Payment<TKey>
+        {
+            OwnerId = item.OwnerId,
+            SubscriptionId = subscription.Id,
+            MolliePaymentId = $"{RefusedChargePrefix}{item.Id}",
+            Status = "failed",
+            Amount = net,
+            Currency = item.Currency,
+            AmountNet = net,
+            TaxRatePercent = 0m,
+            FailedAt = now,
+        };
+        _db.Payments.Add(failed);
+
+        bool becamePastDue = subscription.Status == SubscriptionStatus.Active;
+        if (becamePastDue)
+        {
+            subscription.Status = SubscriptionStatus.PastDue;
+            subscription.PastDueSince = now;
+            subscription.DunningRemindersSent = 0;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        await _eventDispatcher.DispatchAsync(new OrderPaymentFailed<TKey>(failed, subscription, item.OwnerId), ct);
+        if (becamePastDue)
+        {
+            bool neverPaid = !await _db.Payments.AnyAsync(
+                p => p.SubscriptionId == subscription.Id && p.Status == "paid", ct);
+            await _eventDispatcher.DispatchAsync(
+                new SubscriptionPastDue<TKey>(subscription, failed, item.OwnerId) { NeverPaid = neverPaid }, ct);
+        }
+    }
+
+    /// <summary>Prefix of the payment id recorded for a charge Mollie refused to create.</summary>
+    internal const string RefusedChargePrefix = "refused_";
+
+    // 429 is "try again later", not a verdict on the payment.
+    private static bool IsRefusal(Exception ex) => ex switch
+    {
+        Mollie.Api.Client.MollieApiException { Details.Status: >= 400 and < 500 and not 429 } => true,
+        Testing.FakeMollieException { Status: >= 400 and < 500 and not 429 } => true,
+        _ => false,
+    };
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping order item {OrderItemId}: subscription is null or not active")]
     private partial void LogSkippedInactiveSubscription(long orderItemId);

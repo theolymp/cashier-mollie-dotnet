@@ -10,8 +10,8 @@ namespace CashierMollie.Services;
 
 /// <summary>
 /// One pass of the dunning schedule (<see cref="DunningOptions"/>) over every <c>past_due</c>
-/// subscription: reminder events on the reminder days, and the cancellation at Mollie on the
-/// cancel day. It never charges anything. Run by <see cref="DunningBackgroundService{TKey}"/>;
+/// subscription: reminder events on the reminder days, and the cancellation on the cancel day (at
+/// Mollie when the subscription is registered there, locally otherwise). It never charges anything. Run by <see cref="DunningBackgroundService{TKey}"/>;
 /// public so a consumer with its own scheduler can call <see cref="ProcessAsync"/> instead.
 /// </summary>
 /// <remarks>
