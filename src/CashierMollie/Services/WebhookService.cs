@@ -22,6 +22,7 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
     private readonly ILogger<WebhookService<TKey>> _logger;
+    private readonly TimeProvider _time = TimeProvider.System;
 
     /// <summary>Initializes a new instance of <see cref="WebhookService{TKey}"/>.</summary>
     public WebhookService(
@@ -36,6 +37,24 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         _eventDispatcher = eventDispatcher;
         _options = options.Value;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// As the constructor without it, with the clock of the dunning schedule: when a subscription
+    /// becomes <c>past_due</c>, the reminder and cancel days, and the grace period of
+    /// <c>HasAccess</c>. Billing cycles still read the system clock.
+    /// </summary>
+    public WebhookService(
+        CashierDbContext<TKey> db,
+        IMollieClientService mollieClient,
+        ICashierEventDispatcher eventDispatcher,
+        IOptions<CashierMollieOptions> options,
+        ILogger<WebhookService<TKey>> logger,
+        TimeProvider time)
+        : this(db, mollieClient, eventDispatcher, options, logger)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
     }
 
     [LoggerMessage(Level = LogLevel.Warning,
@@ -137,7 +156,7 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         }
         else if (NativeSubscriptions.IsFailedStatus(molliePayment.Status))
         {
-            localPayment.FailedAt = DateTimeOffset.UtcNow;
+            localPayment.FailedAt = _time.GetUtcNow();
             // A SEPA debit can be reported paid and fail days later. It brought in no money, so it
             // must not keep counting as paid anywhere.
             localPayment.PaidAt = null;
@@ -298,7 +317,7 @@ public partial class WebhookService<TKey> : IWebhookService where TKey : IEquata
         if (outstanding.Count > 0 && subscription.Status == SubscriptionStatus.Active)
         {
             subscription.Status = SubscriptionStatus.PastDue;
-            subscription.PastDueSince = DateTimeOffset.UtcNow;
+            subscription.PastDueSince = _time.GetUtcNow();
             subscription.DunningRemindersSent = 0;
             await _db.SaveChangesAsync(ct);
             bool neverPaid = !await _db.Payments.AnyAsync(

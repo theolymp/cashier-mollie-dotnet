@@ -1243,6 +1243,13 @@ All settings are bound from the `CashierMollie` section in your configuration:
 | `Dunning:CheckInterval` | `TimeSpan` | `"01:00:00"` | How often the dunning job runs |
 | `PaymentMethodUpdateRedirectUrl` | `string` | `"/billing/payment-method-updated"` | Redirect URL after payment method update |
 
+The dunning clock is the registered `TimeProvider` (default `TimeProvider.System`). Register a
+`FakeTimeProvider` in tests to move through reminder and cancel days without backdating rows.
+Start it at the current time (`new FakeTimeProvider(DateTimeOffset.UtcNow)`, not its default in
+2000) and only move it forward: cycle starts, trials and the end date of a plain cancellation
+still come from the system clock, and `HasAccess` compares those with the dunning clock. Register
+the fake in the test host only; everything in that container that takes a `TimeProvider` follows it.
+
 ## Roadmap
 
 CashierMollie covers the full subscription lifecycle, dual billing engines, coupons, credits, refunds, charges, and more. The following features are planned for future releases:

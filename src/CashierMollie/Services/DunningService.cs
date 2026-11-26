@@ -27,6 +27,7 @@ public partial class DunningService<TKey> where TKey : IEquatable<TKey>
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly DunningOptions _options;
     private readonly ILogger<DunningService<TKey>> _logger;
+    private readonly TimeProvider _time = TimeProvider.System;
 
     /// <summary>Initializes a new instance of <see cref="DunningService{TKey}"/>.</summary>
     public DunningService(CashierDbContext<TKey> db, IMollieClientService mollie,
@@ -38,6 +39,20 @@ public partial class DunningService<TKey> where TKey : IEquatable<TKey>
         _eventDispatcher = eventDispatcher;
         _options = options.Value.Dunning;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// As the constructor without it, with the clock of the dunning schedule: when a subscription
+    /// becomes <c>past_due</c>, the reminder and cancel days, and the grace period of
+    /// <c>HasAccess</c>. Billing cycles still read the system clock.
+    /// </summary>
+    public DunningService(CashierDbContext<TKey> db, IMollieClientService mollie,
+        ICashierEventDispatcher eventDispatcher, IOptions<CashierMollieOptions> options,
+        ILogger<DunningService<TKey>> logger, TimeProvider time)
+        : this(db, mollie, eventDispatcher, options, logger)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
     }
 
     /// <summary>Runs one pass. Returns how many reminders and cancellations it dispatched.</summary>
@@ -80,7 +95,7 @@ public partial class DunningService<TKey> where TKey : IEquatable<TKey>
         if (outstanding.Count == 0)
             return false; // nothing owed; the webhook that settled it reconciles the status
 
-        var now = DateTimeOffset.UtcNow;
+        var now = _time.GetUtcNow();
         var reminderDays = _options.ReminderDays.Order().ToList();
 
         if (subscription.PastDueSince is null)

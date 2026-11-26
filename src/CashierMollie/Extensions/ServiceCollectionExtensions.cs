@@ -52,6 +52,8 @@ public static class ServiceCollectionExtensions
 
         // Dunning, on both engines. The job is registered always and returns at once unless
         // CashierMollie:Dunning:Enabled is true.
+        // The clock of the dunning schedule; register your own TimeProvider to move it in tests.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<DunningService<TKey>>();
         services.AddHostedService<DunningBackgroundService<TKey>>();
 

@@ -29,6 +29,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     private readonly CashierMollieOptions _options;
     private readonly ILogger<ManagedBillingEngine<TKey>> _logger;
     private readonly ICouponService<TKey> _coupons;
+    private readonly TimeProvider _time = TimeProvider.System;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ManagedBillingEngine{TKey}"/>.
@@ -55,6 +56,25 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         _options = options.Value;
         _logger = logger;
         _coupons = coupons;
+    }
+
+    /// <summary>
+    /// As the constructor without it, with the clock of the dunning schedule: when a subscription
+    /// becomes <c>past_due</c>, the reminder and cancel days, and the grace period of
+    /// <c>HasAccess</c>. Billing cycles still read the system clock.
+    /// </summary>
+    public ManagedBillingEngine(
+        CashierDbContext<TKey> db,
+        IMollieClientService mollieClient,
+        ICashierEventDispatcher eventDispatcher,
+        IOptions<CashierMollieOptions> options,
+        ILogger<ManagedBillingEngine<TKey>> logger,
+        ICouponService<TKey> coupons,
+        TimeProvider time)
+        : this(db, mollieClient, eventDispatcher, options, logger, coupons)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
     }
 
     /// <inheritdoc />
@@ -689,6 +709,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
 
         // No Mollie payment exists, but the column is required and unique: the item id makes the
         // value unique, and the prefix is not one Mollie uses, so no webhook ever matches it.
+        var failedAt = _time.GetUtcNow();
         var failed = new Payment<TKey>
         {
             OwnerId = item.OwnerId,
@@ -699,7 +720,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
             Currency = item.Currency,
             AmountNet = net,
             TaxRatePercent = 0m,
-            FailedAt = now,
+            FailedAt = failedAt,
         };
         _db.Payments.Add(failed);
 
@@ -707,7 +728,7 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
         if (becamePastDue)
         {
             subscription.Status = SubscriptionStatus.PastDue;
-            subscription.PastDueSince = now;
+            subscription.PastDueSince = failedAt;
             subscription.DunningRemindersSent = 0;
         }
 
