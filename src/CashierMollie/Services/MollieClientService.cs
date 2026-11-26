@@ -83,7 +83,11 @@ public class MollieClientService : IMollieClientService
             SequenceType = SequenceType.Recurring,
             Metadata = MetadataJson.Serialise(metadata),
         };
-        return await _paymentClient.CreatePaymentAsync(request, cancellationToken: ct);
+        if (MollieIdempotency.Current is not { } key)
+            return await _paymentClient.CreatePaymentAsync(request, cancellationToken: ct);
+
+        using (_paymentClient.WithIdempotencyKey(key))
+            return await _paymentClient.CreatePaymentAsync(request, cancellationToken: ct);
     }
 
 

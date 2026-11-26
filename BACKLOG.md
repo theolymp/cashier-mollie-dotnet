@@ -267,9 +267,12 @@ its dunning mails has to backdate `PastDueSince`. Wanted: an optional `TimeProvi
 ### Managed charging: open after the dunning review (2026-11-24, pre-existing)
 
 Found by the security review of Managed dunning; none of it was introduced there.
-- **Crash window:** Mollie accepts the charge, the process dies before `SaveChanges`; the item is
-  unconsumed and charged again, and the webhook ignores the first payment (no row). Fix: write a
-  pending row before the call, or send an idempotency key.
+- **Crash window — narrowed 2026-11-26, not closed:** Mollie accepts the charge, the process dies
+  before `SaveChanges`; the item is unconsumed and charged again. Since the idempotency key
+  (`ManagedBillingEngine.IdempotencyKey`, unreleased) a repeat within Mollie's one hour returns the
+  first payment, and a lost answer is retried once at once. Still open: a rerun after more than an
+  hour (default `ProcessingInterval` is exactly one hour, so a crash plus a slow restart reaches
+  it). Closing it fully needs a pending row written before the call, which is a schema question.
 - **No claim on due items:** two instances processing the same item both charge it; with a refusal
   the second hits the unique index on `refused_<itemId>`, and the failed entities poison the rest
   of that pass's `SaveChanges`.
