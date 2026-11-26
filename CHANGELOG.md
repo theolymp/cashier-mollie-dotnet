@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Dunning follows a registered `TimeProvider`.** Register your own (`FakeTimeProvider` in tests)
+  and the dunning clock follows it: when a subscription becomes `past_due` (webhook and Managed
+  refusal), the reminder and cancel days, and `HasAccess`. Billing cycles, trials and the end
+  date of a plain cancellation still read the system clock, so start a fake clock at the current
+  time and only move it forward. `AddCashierMollie` registers `TimeProvider.System` only if none is registered; the
+  constructors without a `TimeProvider` remain.
+
 ### Fixed
 
 - **Managed: a charge is no longer made twice when its answer is lost.** Each recurring charge is

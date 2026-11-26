@@ -22,6 +22,7 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
     private readonly ICashierEventDispatcher _eventDispatcher;
     private readonly CashierMollieOptions _options;
     private readonly ILogger<CashierService<TKey>> _logger;
+    private readonly TimeProvider _time = TimeProvider.System;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CashierService{TKey}"/>.
@@ -48,9 +49,28 @@ public class CashierService<TKey> : ICashierService<TKey> where TKey : IEquatabl
         _logger = logger;
     }
 
+    /// <summary>
+    /// As the constructor without it, with the clock of the dunning schedule: when a subscription
+    /// becomes <c>past_due</c>, the reminder and cancel days, and the grace period of
+    /// <c>HasAccess</c>. Billing cycles still read the system clock.
+    /// </summary>
+    public CashierService(
+        CashierDbContext<TKey> db,
+        IBillingEngine<TKey> engine,
+        IMollieClientService mollieClient,
+        ICashierEventDispatcher eventDispatcher,
+        IOptions<CashierMollieOptions> options,
+        ILogger<CashierService<TKey>> logger,
+        TimeProvider time)
+        : this(db, engine, mollieClient, eventDispatcher, options, logger)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
+    }
+
     /// <inheritdoc />
     public bool HasAccess(Subscription<TKey> subscription) =>
-        DunningPolicy.HasAccess(subscription, _options.Dunning, DateTimeOffset.UtcNow);
+        DunningPolicy.HasAccess(subscription, _options.Dunning, _time.GetUtcNow());
 
     /// <inheritdoc />
     public ISubscriptionBuilder<TKey> NewSubscription(IBillable<TKey> owner, string name, string plan)

@@ -258,11 +258,15 @@ Not covered: a run against Mollie's test mode. The request object is verified he
 survives the wire is not, and the credential for that lives in the secret store rather than
 anywhere this repository can reach.
 
-### Dunning reads the clock directly (consumer request 2026-11-24)
+### Dunning reads the clock directly (consumer request 2026-11-24) — built 2026-11-26, unreleased
 
-`DunningService` and `DunningPolicy.HasAccess` use `DateTimeOffset.UtcNow`, so a consumer testing
-its dunning mails has to backdate `PastDueSince`. Wanted: an optional `TimeProvider` (default
-`TimeProvider.System`). Not urgent.
+Done for the dunning clock (`PastDueSince`, `FailedAt`, the schedule, `HasAccess`) via a
+registered `TimeProvider`; `Tests/Services/DunningClockTests` sets it in 2000. Still on the system
+clock: billing cycles, trials, grace periods of a plain cancellation. Review 2026-11-26 (no
+Critical/High): `HasAccess` compares a system-clock `EndsAt` with the dunning clock, and a pre-0.6.0
+`past_due` row takes `PastDueSince` from a system-clock `CreatedAt`; both only matter with a fake
+clock far from real time (README says start it now). Moving the rest needs a `TimeProvider` in
+both engines' cancel paths.
 
 ### Managed charging: open after the dunning review (2026-11-24, pre-existing)
 
