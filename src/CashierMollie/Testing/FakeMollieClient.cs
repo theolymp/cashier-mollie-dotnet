@@ -32,6 +32,7 @@ public sealed class FakeMollieClient : IMollieClientService
     private readonly Dictionary<string, CustomerResponse> _customers = [];
     private readonly Dictionary<string, MandateResponse> _mandates = [];
     private readonly Dictionary<string, PaymentResponse> _payments = [];
+    private readonly Dictionary<string, PaymentResponse> _idempotentPayments = [];
     private readonly Dictionary<string, SubscriptionResponse> _subscriptions = [];
     private readonly List<RefundResponse> _refunds = [];
     private int _sequence;
@@ -217,8 +218,14 @@ public sealed class FakeMollieClient : IMollieClientService
         {
             RequireValidMandate(customerId, mandateId);
             RequireAbsoluteWebhook(webhookUrl);
+            // As Mollie does within an hour: the same Idempotency-Key returns the first payment.
+            var key = Services.MollieIdempotency.Current;
+            if (key != null && _idempotentPayments.TryGetValue(key, out var earlier))
+                return Task.FromResult(earlier);
             var payment = NewPayment(customerId, amount, currency, description, "recurring", "pending");
             payment.MandateId = mandateId;
+            if (key != null)
+                _idempotentPayments[key] = payment;
             return Task.FromResult(payment);
         }
     }

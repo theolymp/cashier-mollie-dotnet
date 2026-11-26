@@ -478,13 +478,37 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
                 // the request and created nothing). A timeout, a 5xx or a dropped connection says
                 // nothing about whether the payment exists, so recording a debt for it could charge
                 // the customer twice; those leave the item unconsumed for the next pass, as before.
+                //
+                // The Idempotency-Key makes a repeat of this charge return the first payment instead
+                // of a second one, for one hour (Mollie's window): a retry after a timeout, and the
+                // pass after a crash between this call and the save. It is derived from the item, so
+                // every attempt for it sends the same key; the creation time keeps two databases
+                // that share an API key (a test key used by several stages) from colliding on an id.
+                // What is charged is part of it too: a charge that changed (another amount or
+                // mandate) must not be answered with the earlier payment and recorded as this one.
                 PaymentResponse molliePayment;
                 try
                 {
-                    molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
-                        customerId, mandateId, net,
-                        item.Currency, item.Description,
-                        _options.EffectiveWebhookUrl, metadata, ct);
+                    using (MollieIdempotency.Use(IdempotencyKey(item, customerId, mandateId, net)))
+                    {
+                        try
+                        {
+                            molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                                customerId, mandateId, net,
+                                item.Currency, item.Description,
+                                _options.EffectiveWebhookUrl, metadata, ct);
+                        }
+                        catch (Exception ex) when (!ct.IsCancellationRequested && IsTransient(ex))
+                        {
+                            // Retried at once, inside Mollie's window: the next pass is an hour away
+                            // by default, when the key may already be forgotten.
+                            LogChargeRetried(item.Id, ex);
+                            molliePayment = await _mollieClient.CreateRecurringPaymentAsync(
+                                customerId, mandateId, net,
+                                item.Currency, item.Description,
+                                _options.EffectiveWebhookUrl, metadata, ct);
+                        }
+                    }
                 }
                 catch (Exception ex) when (!ct.IsCancellationRequested && IsRefusal(ex))
                 {
@@ -702,11 +726,37 @@ public partial class ManagedBillingEngine<TKey> : IBillingEngine<TKey> where TKe
     /// <summary>Prefix of the payment id recorded for a charge Mollie refused to create.</summary>
     internal const string RefusedChargePrefix = "refused_";
 
+    internal static string IdempotencyKey(OrderItem<TKey> item, string customerId, string mandateId, decimal net)
+    {
+        var charge = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{customerId}|{mandateId}|{item.Currency}|{net:0.00}");
+        var hash = Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(charge)), 0, 8);
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"cashier-item-{item.Id}-{item.CreatedAt.ToUnixTimeMilliseconds()}-{hash}");
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Charge for order item {OrderItemId} failed without a verdict from Mollie; retrying once with the same idempotency key")]
+    private partial void LogChargeRetried(long orderItemId, Exception ex);
+
     // 429 is "try again later", not a verdict on the payment.
+    // 409 is not a verdict: Mollie answers it while a request with the same Idempotency-Key is
+    // still being processed, and that request may yet create the payment.
     private static bool IsRefusal(Exception ex) => ex switch
     {
-        Mollie.Api.Client.MollieApiException { Details.Status: >= 400 and < 500 and not 429 } => true,
-        Testing.FakeMollieException { Status: >= 400 and < 500 and not 429 } => true,
+        Mollie.Api.Client.MollieApiException { Details.Status: >= 400 and < 500 and not 409 and not 429 } => true,
+        Testing.FakeMollieException { Status: >= 400 and < 500 and not 409 and not 429 } => true,
+        _ => false,
+    };
+
+    // Worth repeating at once: the answer was lost or Mollie failed. Not 429 (repeating at once is
+    // what it asks you not to do) and not 409 (the first request is still running).
+    private static bool IsTransient(Exception ex) => ex switch
+    {
+        HttpRequestException or TimeoutException or TaskCanceledException => true,
+        Mollie.Api.Client.MollieApiException { Details.Status: >= 500 } => true,
+        Testing.FakeMollieException { Status: >= 500 } => true,
         _ => false,
     };
 

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- **Managed: a charge is no longer made twice when its answer is lost.** Each recurring charge is
+  sent with a Mollie `Idempotency-Key` derived from its order item, so a repeat within Mollie's
+  one-hour window returns the first payment instead of creating a second one. That covers a
+  timeout, network error or Mollie 5xx (now retried once at once, with the same key; 429 is not
+  retried) and a process that dies after Mollie accepted the charge but before it was saved (the
+  next pass, if within the hour). The key also covers the customer, mandate and amount, so a
+  charge that changed in between is not answered with the earlier payment. A crash noticed later
+  than an hour after the charge can still charge twice.
+- **Managed: a 409 from Mollie is no longer recorded as a refused charge.** Mollie answers 409
+  while a request with the same key is still running, which may yet create the payment; the item
+  now stays due instead of becoming a debt. No API or schema
+  change; `IMollieClientService` keeps its shape, and a custom implementation of it receives no
+  key (it is sent by the built-in `MollieClientService`).
+
 ## [0.6.0-beta.8] - 2026-11-24
 
 ### Added
