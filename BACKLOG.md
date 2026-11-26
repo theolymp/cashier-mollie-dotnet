@@ -280,8 +280,14 @@ Found by the security review of Managed dunning; none of it was introduced there
 - **No claim on due items:** two instances processing the same item both charge it; with a refusal
   the second hits the unique index on `refused_<itemId>`, and the failed entities poison the rest
   of that pass's `SaveChanges`.
-- **Mandate per owner, not per subscription:** the engine charges the owner's latest mandate, so
-  settling subscription A on a new mandate moves subscription B to it too.
+- **Mandate per owner, not per subscription — checked 2026-11-26, intended, no change:** a Mollie
+  mandate belongs to the customer, and the library keeps one customer per owner
+  (`MollieCustomerId` is copied from the owner onto every subscription). Charging the owner's
+  latest mandate for all its subscriptions is Mollie's model and Laravel Cashier's (mandate on the
+  billable). A new mandate from settling A is the customer's new payment method, so B using it is
+  wanted. Note: the lookup takes the newest payment with a mandate whatever its status, and after
+  `RevokeMandateAsync` it still finds the revoked one; Mollie refuses that charge, so the
+  subscription goes `past_due` and dunning runs, which is the right outcome for a revoked mandate.
 
 ### No dunning or retry policy
 
